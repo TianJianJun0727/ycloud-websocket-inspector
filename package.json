@@ -1,0 +1,16 @@
+{
+  "name": "ycloud-websocket-inspector",
+  "version": "0.5.5",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build inspector.jsx --outfile inspector.js --target browser --format esm --minify --define 'process.env.NODE_ENV=\"production\"'",
+    "test": "bun test tests/*.test.mjs",
+    "check": "bun run build && bun run test"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "packageManager": "bun@1.4.0"
+}
