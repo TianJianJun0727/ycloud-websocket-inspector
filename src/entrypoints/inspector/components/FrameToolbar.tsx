@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Download, ListEnd, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, FlaskConical, ListEnd, Search, Trash2 } from 'lucide-react';
 
 import type { CaptureDiagnostic, ConnectionFilter, ConnectionRecord } from '../../../types/capture';
 import { displayConnection } from '../inspector-helpers';
@@ -17,6 +17,7 @@ interface FrameToolbarProps {
     onExport: () => void;
     onFilterChange: <Key extends keyof ConnectionFilter>(name: Key, value: ConnectionFilter[Key]) => void;
     onFollowLatestChange: (value: boolean) => void;
+    onOpenSimulator: () => void;
 }
 
 const DIRECTIONS: Array<{ value: ConnectionFilter['direction']; label: string; icon?: typeof ArrowDown }> = [
@@ -40,6 +41,7 @@ export const FrameToolbar = ({
     onExport,
     onFilterChange,
     onFollowLatestChange,
+    onOpenSimulator,
 }: FrameToolbarProps) => (
     <div className="frame-toolbar">
         <div className="frame-summary">
@@ -83,17 +85,28 @@ export const FrameToolbar = ({
                 </div>
             </div>
             <button
+                aria-label="打开消息模拟面板"
+                className="icon-button compact"
+                disabled={disconnected || !selectedConnectionData || selectedConnectionData.status !== 'open'}
+                onClick={onOpenSimulator}
+                title="打开消息模拟面板"
+                type="button"
+            >
+                <FlaskConical size={15} />
+            </button>
+            <button
+                aria-label={followLatest ? '停止跟随最新消息' : '跟随最新消息'}
                 aria-pressed={followLatest}
-                className={`follow-latest-button${followLatest ? ' is-active' : ''}`}
+                className={`icon-button compact${followLatest ? ' is-active' : ''}`}
                 disabled={!selectedConnection}
                 onClick={() => onFollowLatestChange(!followLatest)}
                 title={followLatest ? '停止跟随最新消息' : '跟随最新消息'}
                 type="button"
             >
-                <ListEnd size={14} />
-                <span>跟随最新</span>
+                <ListEnd size={15} />
             </button>
             <button
+                aria-label="清空当前连接"
                 className="icon-button compact"
                 disabled={!selectedConnection}
                 onClick={onClear}
@@ -103,6 +116,7 @@ export const FrameToolbar = ({
                 <Trash2 size={15} />
             </button>
             <button
+                aria-label="导出当前连接"
                 className="icon-button compact"
                 disabled={!selectedConnection}
                 onClick={onExport}

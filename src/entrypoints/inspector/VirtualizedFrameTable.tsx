@@ -37,7 +37,12 @@ const columns: Array<ColumnDef<typeof features, FrameRecord>> = [
         id: 'payload',
         accessorKey: 'payloadData',
         header: '消息预览',
-        cell: (info) => info.row.original.payloadData || '(空消息)',
+        cell: (info) => (
+            <span className="payload-preview">
+                {info.row.original.simulation && <span className="simulation-badge">模拟</span>}
+                <span>{info.row.original.payloadData || '(空消息)'}</span>
+            </span>
+        ),
     },
 ];
 

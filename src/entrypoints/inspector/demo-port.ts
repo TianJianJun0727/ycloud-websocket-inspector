@@ -73,6 +73,7 @@ export const createDemoPort = (): InspectorPort => {
         };
     });
     let buckets = bucketFramesByConnection(frames);
+    let nextFrameId = frames.length + 1;
     const listeners: Array<(message: InspectorMessage) => void> = [];
     const publishStatus = (): void =>
         listeners.forEach((listener) => listener({ type: 'status', generation, targets: [target], scanning: false }));
@@ -107,6 +108,51 @@ export const createDemoPort = (): InspectorPort => {
                         socket.capturePaused = message.paused;
                 });
                 publishStatus();
+            } else if (message.type === 'simulate') {
+                queueMicrotask(() => {
+                    const payloadData =
+                        message.action === 'send' || message.action === 'receive'
+                            ? message.payload
+                            : `[模拟系统事件] ${message.action}`;
+                    const payloadBytes = new TextEncoder().encode(payloadData).byteLength;
+                    const key = connectionKey(message.targetId, message.requestId);
+                    const frame: FrameRecord = {
+                        id: nextFrameId++,
+                        generation,
+                        connectionKey: key,
+                        direction: message.action === 'send' ? 'sent' : 'received',
+                        requestId: message.requestId,
+                        targetId: message.targetId,
+                        targetUrl: target.url,
+                        socketUrl: message.socketUrl,
+                        receivedAt: Date.now(),
+                        timestamp: Date.now() / 1000,
+                        opcode: 1,
+                        mask: false,
+                        payloadData,
+                        payloadBytes,
+                        retainedPayloadBytes: payloadBytes,
+                        truncated: false,
+                        eventName:
+                            message.action === 'send'
+                                ? '模拟发送'
+                                : `模拟${message.action === 'receive' ? '接收' : message.action}`,
+                        simulation:
+                            message.action === 'send' ? 'send' : message.action === 'receive' ? 'receive' : 'system',
+                    };
+                    buckets = { ...buckets, [key]: [...(buckets[key] || []), frame] };
+                    listeners.forEach((listener) => {
+                        listener({ type: 'frame', generation, frame });
+                        listener({
+                            type: 'simulation-result',
+                            simulationResult: {
+                                operationId: message.operationId,
+                                success: true,
+                                message: message.action === 'send' ? '演示消息已发送' : '演示事件已分发给业务监听器',
+                            },
+                        });
+                    });
+                });
             }
         },
         disconnect: (): void => {},

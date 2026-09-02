@@ -20,6 +20,7 @@ export interface FrameRecord {
     retainedPayloadBytes: number;
     truncated: boolean;
     eventName?: string;
+    simulation?: 'send' | 'receive' | 'system';
 }
 
 /** 一次 WebSocket 连接实例，requestId 不同即视为不同连接。 */
@@ -91,17 +92,38 @@ export interface FrameStoreLimits {
     maxTotalBytes: number | null;
 }
 
+/** 模拟面板支持的 WebSocket 操作。 */
+export type SimulationAction = 'send' | 'receive' | 'open' | 'error' | 'close';
+
+/** 模拟操作的执行结果。 */
+export interface SimulationResult {
+    operationId: string;
+    success: boolean;
+    message: string;
+}
+
 /** Inspector 可发送给后台的命令。 */
 export type InspectorCommand =
     | { type: 'rescan' }
     | { type: 'clear' }
     | { type: 'clear-connection'; targetId: string; requestId: string }
     | { type: 'set-connection-paused'; targetId: string; requestId: string; paused: boolean }
-    | { type: 'set-all-connections-paused'; paused: boolean };
+    | { type: 'set-all-connections-paused'; paused: boolean }
+    | {
+          type: 'simulate';
+          operationId: string;
+          targetId: string;
+          requestId: string;
+          socketUrl: string;
+          action: SimulationAction;
+          payload: string;
+          closeCode?: number;
+          closeReason?: string;
+      };
 
 /** 后台推送给 Inspector 的统一消息结构。 */
 export interface InspectorMessage {
-    type: 'state' | 'status' | 'frame' | 'frame-batch' | 'cleared' | 'connection-cleared';
+    type: 'state' | 'status' | 'frame' | 'frame-batch' | 'cleared' | 'connection-cleared' | 'simulation-result';
     generation?: number;
     frame?: FrameRecord;
     frames?: FrameRecord[];
@@ -113,6 +135,7 @@ export interface InspectorMessage {
     limits?: FrameStoreLimits;
     scanning?: boolean;
     connectionKey?: string;
+    simulationResult?: SimulationResult;
 }
 
 /** Chrome Port 与演示 Port 共用的最小通信接口。 */

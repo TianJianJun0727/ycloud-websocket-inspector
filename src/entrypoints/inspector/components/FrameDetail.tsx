@@ -18,6 +18,18 @@ interface FrameDetailProps {
 const getMetadata = (frame: FrameRecord): Array<[string, string]> => [
     ['时间', formatClock(frame.receivedAt)],
     ['方向', frame.direction === 'received' ? '↓ 接收' : '↑ 发送'],
+    ...(frame.simulation
+        ? ([
+              [
+                  '来源',
+                  frame.simulation === 'send'
+                      ? '模拟发送'
+                      : frame.simulation === 'receive'
+                        ? '模拟接收'
+                        : '模拟系统事件',
+              ],
+          ] as Array<[string, string]>)
+        : []),
     ['大小', formatByteSize(frame.payloadBytes)],
     ['Opcode', `${frame.opcode}${frame.opcode === 1 ? ' (Text)' : ''}`],
     ['Request ID', frame.requestId],

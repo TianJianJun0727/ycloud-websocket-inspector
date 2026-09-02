@@ -20,11 +20,14 @@ import type {
     InspectorCommand,
     InspectorMessage,
     InspectorPort,
+    SimulationAction,
+    SimulationResult,
 } from '../../types/capture';
 import { ConnectionSidebar } from './components/ConnectionSidebar';
 import { FrameDetail } from './components/FrameDetail';
 import { FrameToolbar } from './components/FrameToolbar';
 import { InspectorHeader } from './components/InspectorHeader';
+import { SimulationPanel } from './components/SimulationPanel';
 import { createDemoPort } from './demo-port';
 import { buildConnections } from './inspector-helpers';
 import { resolveDarkMode, resolveThemeSeason, type ColorMode, type ThemePreference } from './theme';
@@ -121,6 +124,8 @@ const reduceRuntimeMessage = (runtime: RuntimeState, message: InspectorMessage):
 export const App = () => {
     const portRef = useRef<InspectorPort | null>(null);
     const tableRef = useRef<HTMLDivElement | null>(null);
+    const simulationTimeoutRef = useRef<number | null>(null);
+    const activeSimulationIdRef = useRef<string | null>(null);
     const [runtime, setRuntime] = useState<RuntimeState>(INITIAL_RUNTIME);
     const [selectedConnection, setSelectedConnection] = useState<string | null>(null);
     const [selectedFrameId, setSelectedFrameId] = useState<number | null>(null);
@@ -134,6 +139,9 @@ export const App = () => {
     const [colorMode, setColorMode] = useState<ColorMode>('system');
     const [followLatest, setFollowLatest] = useState(true);
     const [copied, setCopied] = useState(false);
+    const [simulationOpen, setSimulationOpen] = useState(false);
+    const [simulationPending, setSimulationPending] = useState(false);
+    const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
 
     const records = useMemo(
         () => resolveConnectionRecords(runtime.connections, buildConnections(runtime.targets, runtime.frameBuckets)),
@@ -227,11 +235,32 @@ export const App = () => {
             setRuntime((current) => ({ ...current, scanning: false, disconnected: true }));
             return;
         }
-        port.onMessage.addListener((message) => setRuntime((current) => reduceRuntimeMessage(current, message)));
-        port.onDisconnect.addListener(() =>
-            setRuntime((current) => ({ ...current, scanning: false, disconnected: true })),
-        );
+        port.onMessage.addListener((message) => {
+            if (message.type === 'simulation-result' && message.simulationResult) {
+                if (message.simulationResult.operationId !== activeSimulationIdRef.current) return;
+                if (simulationTimeoutRef.current !== null) window.clearTimeout(simulationTimeoutRef.current);
+                simulationTimeoutRef.current = null;
+                activeSimulationIdRef.current = null;
+                setSimulationResult(message.simulationResult);
+                setSimulationPending(false);
+                return;
+            }
+            setRuntime((current) => reduceRuntimeMessage(current, message));
+        });
+        port.onDisconnect.addListener(() => {
+            if (simulationTimeoutRef.current !== null) window.clearTimeout(simulationTimeoutRef.current);
+            simulationTimeoutRef.current = null;
+            activeSimulationIdRef.current = null;
+            setSimulationPending(false);
+            setSimulationResult({
+                operationId: crypto.randomUUID(),
+                success: false,
+                message: '后台连接已断开，请重新打开监听器',
+            });
+            setRuntime((current) => ({ ...current, scanning: false, disconnected: true }));
+        });
         return () => {
+            if (simulationTimeoutRef.current !== null) window.clearTimeout(simulationTimeoutRef.current);
             port.disconnect();
             portRef.current = null;
         };
@@ -322,6 +351,7 @@ export const App = () => {
 
     /** 选择消息并打开与该消息绑定的详情面板。 */
     const selectFrame = (id: number): void => {
+        setSimulationOpen(false);
         setSelectedFrameId(id);
     };
 
@@ -329,6 +359,8 @@ export const App = () => {
     const selectConnection = (key: string): void => {
         setSelectedConnection(key);
         setSelectedFrameId(null);
+        setSimulationOpen(false);
+        setSimulationResult(null);
     };
 
     /** 清空当前连接的全部已捕获帧。 */
@@ -340,6 +372,58 @@ export const App = () => {
             requestId: selectedConnectionData.requestId,
         });
     };
+
+    /** 打开模拟面板，并关闭消息详情以复用右侧可调宽度区域。 */
+    const openSimulator = (): void => {
+        setSelectedFrameId(null);
+        setSimulationResult(null);
+        setSimulationOpen(true);
+    };
+
+    /** 将模拟操作提交给当前连接所在的 SharedWorker 调试目标。 */
+    const executeSimulation = (input: {
+        action: SimulationAction;
+        payload: string;
+        closeCode?: number;
+        closeReason?: string;
+    }): void => {
+        if (!selectedConnectionData || selectedConnectionData.status !== 'open') return;
+        if (!portRef.current || runtime.disconnected) {
+            setSimulationPending(false);
+            setSimulationResult({
+                operationId: crypto.randomUUID(),
+                success: false,
+                message: '后台连接不可用，请重新打开监听器',
+            });
+            return;
+        }
+        const operationId = crypto.randomUUID();
+        activeSimulationIdRef.current = operationId;
+        if (simulationTimeoutRef.current !== null) window.clearTimeout(simulationTimeoutRef.current);
+        simulationTimeoutRef.current = window.setTimeout(() => {
+            if (activeSimulationIdRef.current !== operationId) return;
+            activeSimulationIdRef.current = null;
+            simulationTimeoutRef.current = null;
+            setSimulationPending(false);
+            setSimulationResult({
+                operationId,
+                success: false,
+                message: '模拟操作响应超时，请确认 SharedWorker 仍在运行',
+            });
+        }, 6000);
+        setSimulationPending(true);
+        setSimulationResult(null);
+        send({
+            type: 'simulate',
+            operationId,
+            targetId: selectedConnectionData.targetId,
+            requestId: selectedConnectionData.requestId,
+            socketUrl: selectedConnectionData.url,
+            ...input,
+        });
+    };
+
+    const sidePanelOpen = simulationOpen || Boolean(selectedFrame);
 
     return (
         <div className="inspector-shell">
@@ -360,7 +444,7 @@ export const App = () => {
             <div className="workspace-frame">
                 <Group
                     className="workspace"
-                    key={selectedFrame ? 'detail-open' : 'detail-closed'}
+                    key={sidePanelOpen ? 'side-panel-open' : 'side-panel-closed'}
                     orientation="horizontal"
                 >
                     <Panel defaultSize="300px" maxSize="420px" minSize="250px">
@@ -398,6 +482,7 @@ export const App = () => {
                                 onExport={exportFrames}
                                 onFilterChange={updateFilter}
                                 onFollowLatestChange={setFollowLatest}
+                                onOpenSimulator={openSimulator}
                             />
                             <VirtualizedFrameTable
                                 key={selectedConnection ?? 'no-connection'}
@@ -412,17 +497,27 @@ export const App = () => {
                             />
                         </main>
                     </Panel>
-                    {selectedFrame && <Separator className="panel-resizer" />}
-                    {selectedFrame && (
+                    {sidePanelOpen && <Separator className="panel-resizer" />}
+                    {sidePanelOpen && (
                         <Panel defaultSize="380px" maxSize="560px" minSize="300px">
-                            <FrameDetail
-                                copied={copied}
-                                formattedPayload={formattedPayload}
-                                frame={selectedFrame}
-                                showMetadata={showMetadata}
-                                onClose={() => setSelectedFrameId(null)}
-                                onCopy={copyPayload}
-                            />
+                            {simulationOpen && selectedConnectionData ? (
+                                <SimulationPanel
+                                    connection={selectedConnectionData}
+                                    pending={simulationPending}
+                                    result={simulationResult}
+                                    onClose={() => setSimulationOpen(false)}
+                                    onExecute={executeSimulation}
+                                />
+                            ) : selectedFrame ? (
+                                <FrameDetail
+                                    copied={copied}
+                                    formattedPayload={formattedPayload}
+                                    frame={selectedFrame}
+                                    showMetadata={showMetadata}
+                                    onClose={() => setSelectedFrameId(null)}
+                                    onCopy={copyPayload}
+                                />
+                            ) : null}
                         </Panel>
                     )}
                 </Group>

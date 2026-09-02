@@ -16,10 +16,12 @@ import type {
     FrameRecord,
     InspectorCommand,
     InspectorMessage,
+    SimulationAction,
     SocketRecord,
 } from '../types/capture';
 
 interface RuntimeRemoteObject {
+    description?: string;
     objectId?: string;
     value?: unknown;
 }
@@ -49,6 +51,22 @@ interface WorkerScope {
     scopeName?: string;
     href?: string;
 }
+
+interface RuntimeSimulationResult {
+    success: boolean;
+    message: string;
+}
+
+interface PendingSimulationSend {
+    operationId: string;
+    payload: string;
+    expiresAt: number;
+}
+
+/** 将数据编码为安全的 JavaScript 字面量，避免 payload 参与表达式结构。 */
+const runtimeLiteral = (value: string | number): string => {
+    return JSON.stringify(value).replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
+};
 export default defineBackground(() => {
     const PORT_NAME = 'shared-worker-ws-inspector';
     const { maxFrameCount: MAX_FRAME_COUNT } = FRAME_STORE_LIMITS;
@@ -69,6 +87,7 @@ export default defineBackground(() => {
     const frameOrder: Array<{ id: number; key: string }> = [];
     const retainedFrameIds = new Set<number>();
     const connectionRecords = new Map<string, ConnectionRecord>();
+    const pendingSimulationSends = new Map<string, PendingSimulationSend[]>();
     const diagnostics: CaptureDiagnostic[] = [];
     // generation 用于丢弃上一个 Inspector 会话迟到的异步消息。
     let nextFrameId = 1;
@@ -417,6 +436,72 @@ export default defineBackground(() => {
         const evictedFrameIds = enforceFrameLimits(connectionKey);
         queueFrameBroadcast(record, evictedFrameIds);
     };
+
+    /** 将不会产生 CDP 网络帧的模拟接收和系统事件写入当前连接列表。 */
+    const appendSimulationFrame = (
+        command: Extract<InspectorCommand, { type: 'simulate' }>,
+        targetUrl: string,
+    ): void => {
+        if (command.action === 'send') return;
+        const systemPayload =
+            command.action === 'close'
+                ? `[模拟系统事件] close (${command.closeCode || 1000}) ${command.closeReason || ''}`.trim()
+                : `[模拟系统事件] ${command.action}`;
+        const record = buildFrameRecord({
+            id: nextFrameId++,
+            direction: 'received',
+            params: {
+                requestId: command.requestId,
+                timestamp: Date.now() / 1000,
+                response: {
+                    opcode: 1,
+                    mask: false,
+                    payloadData: command.action === 'receive' ? command.payload : systemPayload,
+                },
+            },
+            socketUrl: command.socketUrl,
+            targetId: command.targetId,
+            targetUrl,
+        });
+        record.simulation = command.action === 'receive' ? 'receive' : 'system';
+        record.eventName = command.action === 'receive' ? '模拟接收' : `模拟 ${command.action}`;
+        appendFrame(record);
+    };
+
+    /** 登记插件发出的消息，用于标记随后到达的真实 CDP 发送帧。 */
+    const registerSimulationSend = (command: Extract<InspectorCommand, { type: 'simulate' }>): void => {
+        if (command.action !== 'send') return;
+        const key = command.targetId + '::' + command.requestId;
+        const now = Date.now();
+        const queue = (pendingSimulationSends.get(key) || []).filter((item) => item.expiresAt > now);
+        queue.push({ operationId: command.operationId, payload: command.payload, expiresAt: now + 10000 });
+        pendingSimulationSends.set(key, queue);
+    };
+
+    /** 移除执行失败或已经被 CDP 发送帧消费的模拟发送登记。 */
+    const removeSimulationSend = (connectionKey: string, operationId: string): void => {
+        const queue = pendingSimulationSends.get(connectionKey);
+        if (!queue) return;
+        const remaining = queue.filter((item) => item.operationId !== operationId);
+        if (remaining.length > 0) pendingSimulationSends.set(connectionKey, remaining);
+        else pendingSimulationSends.delete(connectionKey);
+    };
+
+    /** 将匹配 payload 的下一条发送帧识别为插件模拟发送。 */
+    const consumeSimulationSend = (connectionKey: string, payload: string): boolean => {
+        const now = Date.now();
+        const queue = (pendingSimulationSends.get(connectionKey) || []).filter((item) => item.expiresAt > now);
+        const index = queue.findIndex((item) => item.payload === payload);
+        if (index < 0) {
+            if (queue.length > 0) pendingSimulationSends.set(connectionKey, queue);
+            else pendingSimulationSends.delete(connectionKey);
+            return false;
+        }
+        queue.splice(index, 1);
+        if (queue.length > 0) pendingSimulationSends.set(connectionKey, queue);
+        else pendingSimulationSends.delete(connectionKey);
+        return true;
+    };
     const safeDetach = async (targetId: string): Promise<void> => {
         try {
             await chrome.debugger.detach(debuggerTarget(targetId));
@@ -458,20 +543,75 @@ export default defineBackground(() => {
             const valuesResult = await sendDebuggerCommand(debuggee, 'Runtime.callFunctionOn', {
                 objectId: instancesObjectId,
                 functionDeclaration:
-                    'function () { return this.map(function (socket) { return { url: socket.url, readyState: socket.readyState, protocol: socket.protocol }; }); }',
+                    'function () { globalThis.__ycloudWebSocketInspectorSockets = this; return this.map(function (socket) { return { url: socket.url, readyState: socket.readyState, protocol: socket.protocol }; }); }',
                 returnByValue: true,
             });
             return Array.isArray(valuesResult?.result?.value) ? (valuesResult.result.value as DiscoveredSocket[]) : [];
         } catch {
             return [];
-        } finally {
-            try {
-                await sendDebuggerCommand(debuggee, 'Runtime.releaseObjectGroup', {
-                    objectGroup,
-                });
-            } catch {
-                // The target may have disappeared during discovery.
-            }
+        }
+    };
+
+    /** 在目标运行时中定位唯一连接，并执行真实发送或本地事件模拟。 */
+    const executeSimulation = async (
+        targetId: string,
+        requestId: string,
+        socketUrl: string,
+        action: SimulationAction,
+        payload: string,
+        closeCode = 1000,
+        closeReason = '',
+    ): Promise<RuntimeSimulationResult> => {
+        const target = attachedTargets.get(targetId);
+        const connection = connectionRecord(targetId, requestId);
+        if (!target || !connection) return { success: false, message: '连接已不存在，请重新扫描' };
+        if (connection.status !== 'open') return { success: false, message: '当前连接未处于连接状态' };
+        if (!socketUrl) return { success: false, message: '当前连接缺少 WebSocket 地址，无法安全定位' };
+        if (new TextEncoder().encode(payload).byteLength > 1024 * 1024) {
+            return { success: false, message: '模拟消息不能超过 1 MB' };
+        }
+        const debuggee = debuggerTarget(targetId);
+        try {
+            const executionResult = await sendDebuggerCommand(debuggee, 'Runtime.evaluate', {
+                expression: `(() => {
+                    const url = ${runtimeLiteral(socketUrl)};
+                    const action = ${runtimeLiteral(action)};
+                    const payload = ${runtimeLiteral(payload)};
+                    const closeCode = ${runtimeLiteral(closeCode)};
+                    const closeReason = ${runtimeLiteral(closeReason)};
+                    const registry = globalThis.__ycloudWebSocketInspectorSockets;
+                    if (!Array.isArray(registry)) return { success: false, message: '连接注册表尚未就绪，请重新扫描' };
+                    const sockets = registry.filter((socket) => socket.url === url && socket.readyState === WebSocket.OPEN);
+                    if (sockets.length === 0) return { success: false, message: '未找到对应的活动连接' };
+                    if (sockets.length > 1) return { success: false, message: '存在多个相同地址的活动连接，已拒绝执行' };
+                    const socket = sockets[0];
+                    if (action === 'send') socket.send(payload);
+                    else setTimeout(function () {
+                        if (action === 'receive') socket.dispatchEvent(new MessageEvent('message', {
+                            data: payload,
+                            origin: new URL(socket.url).origin,
+                        }));
+                        else if (action === 'close') socket.dispatchEvent(new CloseEvent('close', { code: closeCode, reason: closeReason, wasClean: false }));
+                        else socket.dispatchEvent(new Event(action));
+                    }, 0);
+                    return {
+                        success: true,
+                        message: action === 'send' ? '消息已通过真实连接发送' : '模拟事件已分发给业务监听器',
+                    };
+                })()`,
+                returnByValue: true,
+                timeout: 3000,
+                disableBreaks: true,
+            });
+            const result = executionResult?.result?.value as RuntimeSimulationResult | undefined;
+            return (
+                result || {
+                    success: false,
+                    message: executionResult?.result?.description || '目标运行时未返回执行结果',
+                }
+            );
+        } catch (error) {
+            return { success: false, message: error instanceof Error ? error.message : '模拟操作执行失败' };
         }
     };
     const assignDiscoveredSocketUrl = (targetId: string, requestId: string): void => {
@@ -630,6 +770,14 @@ export default defineBackground(() => {
                 closedAt: null,
                 status: 'connecting',
             });
+            // 新连接创建后刷新运行时引用，后续模拟操作无需再次扫描堆对象。
+            void discoverExistingWebSockets(debuggerTarget(targetId)).then((discoveredSockets) => {
+                const currentTarget = attachedTargets.get(targetId);
+                if (!currentTarget) return;
+                currentTarget.discoveredSockets = discoveredSockets;
+                assignDiscoveredSocketUrl(targetId, eventParams.requestId);
+                broadcast();
+            });
             broadcast();
             return;
         }
@@ -690,16 +838,19 @@ export default defineBackground(() => {
         }
         const connectionKey = targetId + '::' + eventParams.requestId;
         if (pausedConnections.has(connectionKey)) return;
-        appendFrame(
-            buildFrameRecord({
-                id: nextFrameId++,
-                direction,
-                params: eventParams,
-                socketUrl: socket?.url,
-                targetId,
-                targetUrl: target.url,
-            }),
-        );
+        const frame = buildFrameRecord({
+            id: nextFrameId++,
+            direction,
+            params: eventParams,
+            socketUrl: socket?.url,
+            targetId,
+            targetUrl: target.url,
+        });
+        if (direction === 'sent' && consumeSimulationSend(connectionKey, eventParams.response?.payloadData || '')) {
+            frame.simulation = 'send';
+            frame.eventName = '模拟发送';
+        }
+        appendFrame(frame);
     });
     chrome.debugger.onDetach.addListener((source, reason) => {
         if (!source.targetId || !attachedTargets.has(source.targetId)) return;
@@ -783,6 +934,37 @@ export default defineBackground(() => {
             } else if (command.type === 'rescan') {
                 blockedTargetIds.clear();
                 scanTargets();
+            } else if (command.type === 'simulate') {
+                registerSimulationSend(command);
+                void withTimeout(
+                    executeSimulation(
+                        command.targetId,
+                        command.requestId,
+                        command.socketUrl,
+                        command.action,
+                        command.payload,
+                        command.closeCode,
+                        command.closeReason,
+                    ),
+                    5000,
+                )
+                    .catch((error: unknown): RuntimeSimulationResult => ({
+                        success: false,
+                        message: error instanceof Error ? error.message : '模拟操作执行超时',
+                    }))
+                    .then((result) => {
+                        if (disconnected) return;
+                        if (!result.success && command.action === 'send') {
+                            removeSimulationSend(command.targetId + '::' + command.requestId, command.operationId);
+                        }
+                        if (result.success) {
+                            appendSimulationFrame(command, attachedTargets.get(command.targetId)?.url || '');
+                        }
+                        port.postMessage({
+                            type: 'simulation-result',
+                            simulationResult: { operationId: command.operationId, ...result },
+                        } satisfies InspectorMessage);
+                    });
             }
         });
         port.onDisconnect.addListener(() => {

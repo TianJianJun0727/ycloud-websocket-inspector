@@ -81,6 +81,7 @@ export const InspectorHeader = ({
                 </span>
                 <div className="settings-control" ref={settingsRef}>
                     <button
+                        aria-label="显示设置"
                         className="icon-button"
                         onClick={() => setSettingsOpen((open) => !open)}
                         title="显示设置"
@@ -166,7 +167,7 @@ export const InspectorHeader = ({
                         </div>
                     )}
                 </div>
-                <button className="icon-button" onClick={onRescan} title="重新扫描" type="button">
+                <button aria-label="重新扫描" className="icon-button" onClick={onRescan} title="重新扫描" type="button">
                     <RefreshCw size={18} />
                 </button>
             </div>
