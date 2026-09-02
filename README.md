@@ -8,7 +8,7 @@
 1. 打开 Chrome 的扩展程序页面：chrome://extensions。
 2. 打开右上角的“开发者模式”。
 3. 点击“加载已解压的扩展程序”。
-4. 选择解压后的插件目录（该目录根部应直接包含 `manifest.json`）。
+4. 选择 `bun run build` 生成的 `.output/chrome-mv3` 目录。
 5. 打开使用 SharedWorker 的业务页面，再点击工具栏中的扩展图标。
 
 Chrome 会显示调试器相关提示，这是 chrome.debugger 权限的正常安全提示。关闭
@@ -45,7 +45,7 @@ Inspector 页面约 5 秒后，扩展会主动断开全部调试目标；重新�
 - 单条 payload 最多保留 1 MB，超出部分标记为截断。
 - 页面表格通过固定行高虚拟化展示当前连接的全部保留记录；左侧数量与未筛选表格总数一致，DOM 只保留可视行和少量缓冲行。
 - “清空当前连接”会同时删除该连接在内存和扩展 IndexedDB 中的记录。卸载扩展也会删除扩展存储。
-- 后台以最多 64 条或 70ms 为一个批次向 React UI 传输，降低高流量时的扩展消息与
+- 后台以最多 64 条或 70ms 为一个批次向 Svelte UI 传输，降低高流量时的扩展消息与
   重渲染开销。
 - 顶部“存储异常”仅表示扩展 IndexedDB 初始化或写入失败；SharedWorker 调试连接、扫描
   或 WebSocket frame 错误短时显示为“监听异常”，连接/帧恢复或 10 秒后自动消失，悬停可查看原始错误信息。
@@ -61,11 +61,12 @@ Inspector 页面约 5 秒后，扩展会主动断开全部调试目标；重新�
 
 ## UI 开发
 
-Inspector UI 使用 React 18，依赖记录在 `package.json`。首次开发先运行 `bun install`，修改 `inspector.jsx` 后运行：
+项目使用 WXT、Svelte 5、TailwindCSS v4 和 DaisyUI。首次开发先运行 `bun install`，启动开发模式：
 
-    bun run build
+    bun run dev
 
-加载扩展时使用已经生成的 inspector.js，不需要额外启动开发服务。
+生产构建运行 `bun run build`，然后在 Chrome 中加载 `.output/chrome-mv3`。Inspector 入口位于
+`src/entrypoints/inspector`，后台入口位于 `src/entrypoints/background.ts`。
 
 ## 设计参考
 

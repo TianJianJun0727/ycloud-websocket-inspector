@@ -1,3 +1,6 @@
 node_modules/
+.output/
+.wxt/
+design-qa.md
 .DS_Store
 *.zip
