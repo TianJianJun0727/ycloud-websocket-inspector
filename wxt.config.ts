@@ -5,13 +5,13 @@ export default defineConfig({
     srcDir: 'src',
     modules: ['@wxt-dev/module-react'],
     manifest: {
-        name: 'YCloud WebSocket 监听器',
+        name: 'YCloud WebSocket 调试器',
         version: '0.6.6',
-        description: '监听页面、Web Worker 与 SharedWorker 中的 WebSocket 消息。',
+        description: '捕获并调试页面、Web Worker 与 SharedWorker 中的 WebSocket 消息。',
         minimum_chrome_version: '125',
         permissions: ['debugger', 'tabs'],
         action: {
-            default_title: '打开 YCloud WebSocket 监听器',
+            default_title: '打开 YCloud WebSocket 调试器',
             default_icon: {
                 16: 'assets/icon-16.png',
                 32: 'assets/icon-32.png',

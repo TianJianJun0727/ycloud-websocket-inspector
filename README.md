@@ -1,4 +1,4 @@
-# YCloud WebSocket 监听器
+# YCloud WebSocket 调试器
 
 用于本地监听普通页面、Web Worker 与 SharedWorker WebSocket 消息的 Chrome 扩展。它不会修改业务页面、
 业务 WebSocket 或业务页面存储；捕获记录只保存在扩展自身的 IndexedDB。

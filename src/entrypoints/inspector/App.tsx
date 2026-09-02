@@ -255,7 +255,7 @@ export const App = () => {
             setSimulationResult({
                 operationId: crypto.randomUUID(),
                 success: false,
-                message: '后台连接已断开，请重新打开监听器',
+                message: '后台连接已断开，请重新打开调试器',
             });
             setRuntime((current) => ({ ...current, scanning: false, disconnected: true }));
         });
@@ -393,7 +393,7 @@ export const App = () => {
             setSimulationResult({
                 operationId: crypto.randomUUID(),
                 success: false,
-                message: '后台连接不可用，请重新打开监听器',
+                message: '后台连接不可用，请重新打开调试器',
             });
             return;
         }

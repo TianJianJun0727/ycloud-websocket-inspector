@@ -26,7 +26,7 @@ const COLOR_MODES: Array<{ value: ColorMode; label: string }> = [
 ];
 const COLOR_MODE_LABELS: Record<ColorMode, string> = { light: '亮色', dark: '暗色', system: '跟随系统' };
 
-/** 展示产品标识、当前外观和真实生效的监听器设置。 */
+/** 展示产品标识、当前外观和真实生效的调试器设置。 */
 export const InspectorHeader = ({
     colorMode,
     heartbeatMessages,
@@ -70,8 +70,8 @@ export const InspectorHeader = ({
                     <img alt="YCloud" src="/assets/ycloud-logo.svg" />
                 </span>
                 <div>
-                    <h1>YCloud WebSocket 监听器</h1>
-                    <p>监听页面与 Worker WebSocket 消息</p>
+                    <h1>YCloud WebSocket 调试器</h1>
+                    <p>捕获并调试页面、Web Worker 与 SharedWorker 中的 WebSocket 消息</p>
                 </div>
             </div>
             <div className="header-actions">
