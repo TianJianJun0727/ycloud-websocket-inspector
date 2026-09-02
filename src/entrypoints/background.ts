@@ -60,6 +60,7 @@ interface RuntimeSimulationResult {
 interface PendingSimulationSend {
     operationId: string;
     payload: string;
+    socketUrl: string;
     expiresAt: number;
 }
 
@@ -474,7 +475,12 @@ export default defineBackground(() => {
         const key = command.targetId + '::' + command.requestId;
         const now = Date.now();
         const queue = (pendingSimulationSends.get(key) || []).filter((item) => item.expiresAt > now);
-        queue.push({ operationId: command.operationId, payload: command.payload, expiresAt: now + 10000 });
+        queue.push({
+            operationId: command.operationId,
+            payload: command.payload,
+            socketUrl: command.socketUrl,
+            expiresAt: now + 10000,
+        });
         pendingSimulationSends.set(key, queue);
     };
 
@@ -487,11 +493,17 @@ export default defineBackground(() => {
         else pendingSimulationSends.delete(connectionKey);
     };
 
-    /** 将匹配 payload 的下一条发送帧识别为插件模拟发送。 */
-    const consumeSimulationSend = (connectionKey: string, payload: string): boolean => {
-        const now = Date.now();
+    /** 消费指定连接队列中与真实发送帧匹配的模拟发送登记。 */
+    const consumeSimulationSendFromQueue = (
+        connectionKey: string,
+        payload: string,
+        socketUrl: string | undefined,
+        now: number,
+    ): boolean => {
         const queue = (pendingSimulationSends.get(connectionKey) || []).filter((item) => item.expiresAt > now);
-        const index = queue.findIndex((item) => item.payload === payload);
+        const index = queue.findIndex(
+            (item) => item.payload === payload && (!socketUrl || item.socketUrl === socketUrl),
+        );
         if (index < 0) {
             if (queue.length > 0) pendingSimulationSends.set(connectionKey, queue);
             else pendingSimulationSends.delete(connectionKey);
@@ -501,6 +513,23 @@ export default defineBackground(() => {
         if (queue.length > 0) pendingSimulationSends.set(connectionKey, queue);
         else pendingSimulationSends.delete(connectionKey);
         return true;
+    };
+
+    /** 将匹配连接、地址和 payload 的下一条发送帧识别为插件模拟发送。 */
+    const consumeSimulationSend = (
+        targetId: string,
+        requestId: string,
+        payload: string,
+        socketUrl: string | undefined,
+    ): boolean => {
+        const now = Date.now();
+        const exactConnectionKey = targetId + '::' + requestId;
+        if (consumeSimulationSendFromQueue(exactConnectionKey, payload, socketUrl, now)) return true;
+        for (const connectionKey of pendingSimulationSends.keys()) {
+            if (connectionKey === exactConnectionKey || !connectionKey.startsWith(targetId + '::')) continue;
+            if (consumeSimulationSendFromQueue(connectionKey, payload, socketUrl, now)) return true;
+        }
+        return false;
     };
     const safeDetach = async (targetId: string): Promise<void> => {
         try {
@@ -846,7 +875,10 @@ export default defineBackground(() => {
             targetId,
             targetUrl: target.url,
         });
-        if (direction === 'sent' && consumeSimulationSend(connectionKey, eventParams.response?.payloadData || '')) {
+        if (
+            direction === 'sent' &&
+            consumeSimulationSend(targetId, eventParams.requestId, eventParams.response?.payloadData || '', socket?.url)
+        ) {
             frame.simulation = 'send';
             frame.eventName = '模拟发送';
         }

@@ -205,6 +205,48 @@ button {
     width: 31px;
     height: 31px;
 }
+.icon-button[data-tooltip] {
+    position: relative;
+}
+.icon-button[data-tooltip]::after {
+    position: absolute;
+    z-index: 1000;
+    top: calc(100% + 7px);
+    left: 50%;
+    width: max-content;
+    max-width: 160px;
+    padding: 5px 8px;
+    border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+    border-radius: 6px;
+    color: var(--text);
+    background: var(--surface-solid);
+    box-shadow: var(--shadow-md);
+    content: attr(data-tooltip);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.3;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, -3px);
+    transition:
+        opacity 120ms ease,
+        transform 120ms ease;
+}
+.icon-button[data-tooltip-align='end']::after {
+    right: 0;
+    left: auto;
+    transform: translateY(-3px);
+}
+.icon-button[data-tooltip]:hover::after,
+.icon-button[data-tooltip]:focus-visible::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+.icon-button[data-tooltip-align='end']:hover::after,
+.icon-button[data-tooltip-align='end']:focus-visible::after {
+    transform: translateY(0);
+}
 .icon-button.is-active {
     border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
     color: var(--accent-strong);

@@ -87,6 +87,7 @@ export const FrameToolbar = ({
             <button
                 aria-label="打开消息模拟面板"
                 className="icon-button compact"
+                data-tooltip="模拟消息"
                 disabled={disconnected || !selectedConnectionData || selectedConnectionData.status !== 'open'}
                 onClick={onOpenSimulator}
                 title="打开消息模拟面板"
@@ -98,6 +99,7 @@ export const FrameToolbar = ({
                 aria-label={followLatest ? '停止跟随最新消息' : '跟随最新消息'}
                 aria-pressed={followLatest}
                 className={`icon-button compact${followLatest ? ' is-active' : ''}`}
+                data-tooltip={followLatest ? '停止跟随最新' : '跟随最新'}
                 disabled={!selectedConnection}
                 onClick={() => onFollowLatestChange(!followLatest)}
                 title={followLatest ? '停止跟随最新消息' : '跟随最新消息'}
@@ -108,6 +110,7 @@ export const FrameToolbar = ({
             <button
                 aria-label="清空当前连接"
                 className="icon-button compact"
+                data-tooltip="删除消息"
                 disabled={!selectedConnection}
                 onClick={onClear}
                 title="清空当前连接"
@@ -118,6 +121,7 @@ export const FrameToolbar = ({
             <button
                 aria-label="导出当前连接"
                 className="icon-button compact"
+                data-tooltip="导出消息"
                 disabled={!selectedConnection}
                 onClick={onExport}
                 title="导出当前连接"
