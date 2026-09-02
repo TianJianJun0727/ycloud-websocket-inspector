@@ -53,6 +53,30 @@ export function orderRecentFrames(frames, sortOrder, limit) {
   return sortOrder === 'asc' ? limited : limited.reverse();
 }
 
+export function getVirtualWindow(length, scrollTop, viewportHeight, rowHeight, overscan) {
+  const maximumScrollTop = Math.max(0, length * rowHeight - viewportHeight);
+  const boundedScrollTop = Math.min(maximumScrollTop, Math.max(0, scrollTop));
+  const startIndex = Math.max(0, Math.floor(boundedScrollTop / rowHeight) - overscan);
+  const endIndex = Math.min(
+    length,
+    Math.ceil((boundedScrollTop + viewportHeight) / rowHeight) + overscan,
+  );
+  return {
+    startIndex,
+    endIndex,
+    topSpacerHeight: startIndex * rowHeight,
+    bottomSpacerHeight: Math.max(0, (length - endIndex) * rowHeight),
+  };
+}
+
+export function resolveConnectionRecords(connectionSnapshot, fallbackRecords) {
+  return Array.isArray(connectionSnapshot) ? connectionSnapshot : fallbackRecords;
+}
+
+export function isActiveDiagnostic(diagnostic, now = Date.now()) {
+  return !diagnostic.expiresAt || diagnostic.expiresAt > now;
+}
+
 function parseRegexFilter(query) {
   if (!query.startsWith('/')) return null;
   const lastSlash = query.lastIndexOf('/');

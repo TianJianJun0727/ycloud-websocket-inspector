@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import {
   bucketFramesByConnection,
+  getVirtualWindow,
+  isActiveDiagnostic,
   matchesTextFilter,
   mergeFrameBatch,
   mergeFrameBuckets,
   orderRecentFrames,
+  resolveConnectionRecords,
 } from '../inspector-utils.js';
 
 describe('inspector utils', () => {
@@ -98,5 +101,37 @@ describe('inspector utils', () => {
       { id: 2, receivedAt: 100, timestamp: 1 },
     ];
     expect(orderRecentFrames(frames, 'asc', 10).map((frame) => frame.id)).toEqual([1, 2, 3]);
+  });
+
+  test('virtualizes a large connection without changing its total row count', () => {
+    const window = getVirtualWindow(100000, 42000, 420, 42, 12);
+    expect(window).toEqual({
+      startIndex: 988,
+      endIndex: 1022,
+      topSpacerHeight: 41496,
+      bottomSpacerHeight: 4157076,
+    });
+    expect(window.endIndex - window.startIndex).toBe(34);
+  });
+
+  test('clamps stale scroll positions after a filter reduces the row count', () => {
+    expect(getVirtualWindow(10, 420000, 420, 42, 12)).toEqual({
+      startIndex: 0,
+      endIndex: 10,
+      topSpacerHeight: 0,
+      bottomSpacerHeight: 0,
+    });
+  });
+
+  test('keeps an explicit empty connection snapshot after a capture reset', () => {
+    const staleFallback = [{ key: 'closed-connection' }];
+    expect(resolveConnectionRecords([], staleFallback)).toEqual([]);
+    expect(resolveConnectionRecords(null, staleFallback)).toEqual(staleFallback);
+  });
+
+  test('expires transient capture diagnostics without expiring persistent storage errors', () => {
+    expect(isActiveDiagnostic({ expiresAt: 1100 }, 1000)).toBe(true);
+    expect(isActiveDiagnostic({ expiresAt: 900 }, 1000)).toBe(false);
+    expect(isActiveDiagnostic({ expiresAt: null }, 1000)).toBe(true);
   });
 });

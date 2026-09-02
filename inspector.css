@@ -517,7 +517,7 @@ select:disabled {
 
 .target-list .target-item {
   width: 100%;
-  min-height: 58px;
+  min-height: 62px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -616,6 +616,14 @@ select:disabled {
   background: color-mix(in srgb, var(--orange) 9%, transparent);
 }
 
+.connection-capture-button:disabled {
+  border-color: var(--line-soft);
+  color: var(--subtle);
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 @keyframes connection-pulse {
   50% {
     opacity: 0.4;
@@ -675,18 +683,14 @@ select:disabled {
   font-size: 11px;
 }
 
-.connection-context-copy {
+.connection-period {
   min-width: 0;
   flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.connection-context-copy strong {
   overflow: hidden;
-  color: var(--text-strong);
+  color: var(--subtle);
   text-overflow: ellipsis;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -752,17 +756,14 @@ select:disabled {
   white-space: nowrap;
 }
 
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-soft);
-}
-
-.status-dot.paused {
-  background: var(--orange);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--orange) 10%, transparent);
+.storage-warning {
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .follow-toggle {
@@ -909,6 +910,17 @@ tbody tr:hover {
 
 tbody tr.selected {
   background: var(--row-selected);
+}
+
+tbody tr.virtual-spacer,
+tbody tr.virtual-spacer:hover {
+  background: transparent;
+}
+
+tbody tr.virtual-spacer td {
+  height: 0;
+  padding: 0;
+  border: 0;
 }
 
 .direction {

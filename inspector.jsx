@@ -1,19 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { formatByteSize, parseJsonPayload } from './frame-utils.js';
+import { FRAME_STORE_LIMITS } from './frame-store.js';
 import {
   bucketFramesByConnection,
+  getVirtualWindow,
+  isActiveDiagnostic,
   matchesTextFilter,
   mergeFrameBuckets,
   orderRecentFrames,
+  resolveConnectionRecords,
 } from './inspector-utils.js';
 
-const TABLE_RENDER_LIMIT = 800;
-const DEFAULT_LIMITS = {
-  maxFrameCount: 20000,
-  maxFramesPerConnection: 5000,
-  maxTotalBytes: 64 * 1024 * 1024,
-};
+const TABLE_ROW_HEIGHT = 42;
+const TABLE_OVERSCAN = 12;
+const DEFAULT_LIMITS = FRAME_STORE_LIMITS;
 const isDemo = new URLSearchParams(location.search).get('demo') === '1';
 
 function clamp(value, minimum, maximum) {
@@ -42,6 +43,19 @@ function formatClock(timestamp) {
     '.' +
     pad(date.getMilliseconds(), 3)
   );
+}
+
+function formatConnectionTime(timestamp, fallback) {
+  if (!timestamp) return fallback;
+  return formatClock(timestamp).slice(0, 19);
+}
+
+function connectionStateLabel(connection) {
+  if (!connection) return '未选择连接';
+  if (connection.status === 'closed') return '已关闭';
+  if (connection.capturePaused) return '已暂停记录';
+  if (connection.status === 'connecting') return '连接中';
+  return '记录中';
 }
 
 function displayUrl(url, fallback = '未知 URL') {
@@ -167,6 +181,7 @@ function createDemoPort() {
   let generation = 0;
   let cleared = false;
   const now = Date.now();
+  const showClosedConnection = new URLSearchParams(location.search).get('demoClosed') === '1';
   const target = {
     id: 'demo-shared-worker',
     type: 'shared_worker',
@@ -180,16 +195,14 @@ function createDemoPort() {
         createdAt: now - 120000,
         closedAt: null,
         status: 'open',
-        messagesPerSecond: 6,
         capturePaused: false,
       },
       {
         requestId: 'socket-demo-2',
         url: 'wss://push.example.com/notifications',
         createdAt: now - 60000,
-        closedAt: null,
-        status: 'open',
-        messagesPerSecond: 2,
+        closedAt: showClosedConnection ? now - 30000 : null,
+        status: showClosedConnection ? 'closed' : 'open',
         capturePaused: false,
       },
     ],
@@ -215,7 +228,7 @@ function createDemoPort() {
   const requestedRows = Number(new URLSearchParams(location.search).get('demoRows'));
   const demoRowCount =
     Number.isFinite(requestedRows) && requestedRows > 0
-      ? Math.min(requestedRows, 500)
+      ? Math.min(requestedRows, DEFAULT_LIMITS.maxFramesPerConnection)
       : samples.length;
   const frames = Array.from({ length: demoRowCount }, (_, index) => {
     const [direction, requestId, payloadData] = samples[index % samples.length];
@@ -281,7 +294,7 @@ function createDemoPort() {
         }
       } else if (message.type === 'set-connection-paused') {
         const socket = target.sockets.find((item) => item.requestId === message.requestId);
-        if (socket) socket.capturePaused = message.paused;
+        if (socket && socket.status !== 'closed') socket.capturePaused = message.paused;
         for (const listener of messageListeners) {
           listener({
             type: 'status',
@@ -291,7 +304,9 @@ function createDemoPort() {
           });
         }
       } else if (message.type === 'set-all-connections-paused') {
-        for (const socket of target.sockets) socket.capturePaused = message.paused;
+        for (const socket of target.sockets) {
+          if (socket.status !== 'closed') socket.capturePaused = message.paused;
+        }
         for (const listener of messageListeners) {
           listener({
             type: 'status',
@@ -344,6 +359,134 @@ function ResizeHandle({ axis, label, onDelta }) {
   );
 }
 
+function VirtualizedFrameTable({
+  frames,
+  selectedConnection,
+  selectedFrameId,
+  setFollowLatest,
+  setSelectedFrameId,
+  setSortOrder,
+  sortOrder,
+  tableWrapRef,
+}) {
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(480);
+
+  useEffect(() => {
+    const container = tableWrapRef.current;
+    if (!container) return undefined;
+    const updateHeight = () => setViewportHeight(container.clientHeight);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [tableWrapRef]);
+
+  useEffect(() => {
+    const container = tableWrapRef.current;
+    if (container) container.scrollTop = 0;
+    setScrollTop(0);
+  }, [selectedConnection, sortOrder, tableWrapRef]);
+
+  const { startIndex, endIndex, topSpacerHeight, bottomSpacerHeight } = getVirtualWindow(
+    frames.length,
+    scrollTop,
+    viewportHeight,
+    TABLE_ROW_HEIGHT,
+    TABLE_OVERSCAN,
+  );
+  const renderedFrames = frames.slice(startIndex, endIndex);
+
+  return (
+    <div
+      className="table-wrap"
+      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      ref={tableWrapRef}
+    >
+      <table aria-rowcount={frames.length + 1}>
+        <thead>
+          <tr>
+            <th aria-sort={sortOrder === 'asc' ? 'ascending' : 'descending'}>
+              <button
+                aria-label={
+                  sortOrder === 'asc' ? '时间正序，点击切换倒序' : '时间倒序，点击切换正序'
+                }
+                className="sort-heading"
+                onClick={() => setSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'))}
+              >
+                时间 <span aria-hidden="true">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+              </button>
+            </th>
+            <th>方向</th>
+            <th>大小</th>
+            <th>消息预览</th>
+          </tr>
+        </thead>
+        <tbody>
+          {topSpacerHeight > 0 && (
+            <tr
+              aria-hidden="true"
+              className="virtual-spacer"
+            >
+              <td
+                colSpan="4"
+                style={{ height: topSpacerHeight }}
+              />
+            </tr>
+          )}
+          {renderedFrames.map((frame, index) => (
+            <tr
+              aria-rowindex={startIndex + index + 2}
+              className={frame.id === selectedFrameId ? 'selected' : ''}
+              key={frame.id}
+              onClick={() => {
+                setSelectedFrameId(frame.id);
+                setFollowLatest(false);
+              }}
+            >
+              <td>{formatClock(frame.receivedAt)}</td>
+              <td>
+                <span className={'direction ' + frame.direction}>
+                  {frame.direction === 'received' ? '↓ 下行' : '↑ 上行'}
+                </span>
+              </td>
+              <td>{formatByteSize(frame.payloadBytes)}</td>
+              <td
+                className="payload-preview"
+                title={frame.payloadData}
+              >
+                {frame.payloadData || '(空消息)'}
+              </td>
+            </tr>
+          ))}
+          {bottomSpacerHeight > 0 && (
+            <tr
+              aria-hidden="true"
+              className="virtual-spacer"
+            >
+              <td
+                colSpan="4"
+                style={{ height: bottomSpacerHeight }}
+              />
+            </tr>
+          )}
+        </tbody>
+      </table>
+      {frames.length === 0 && (
+        <div className="empty-state">
+          <span className="empty-icon">↯</span>
+          <strong>{selectedConnection ? '等待当前连接消息' : '请选择 WebSocket 连接'}</strong>
+          <p>
+            {selectedConnection
+              ? '当前搜索或方向筛选下暂无消息。'
+              : '从左侧选择一次具体连接后查看对应消息。'}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function buildConnections(targets, frameBuckets) {
   const result = [];
   for (const target of targets) {
@@ -363,9 +506,9 @@ function buildConnections(targets, frameBuckets) {
         targetUrl: target.url,
         requestId: socket.requestId,
         url: socket.url || socketFrames.at(-1)?.socketUrl || '',
+        createdAt: socket.createdAt || socketFrames[0]?.receivedAt || null,
         closedAt: socket.closedAt,
         status: socket.status || (socket.closedAt ? 'closed' : 'open'),
-        messagesPerSecond: socket.messagesPerSecond || 0,
         capturePaused: Boolean(socket.capturePaused),
         frameCount: socketFrames.length,
       });
@@ -381,6 +524,7 @@ function App() {
     generation: 0,
     frameBuckets: {},
     targets: [],
+    connections: null,
     diagnostics: [],
     limits: DEFAULT_LIMITS,
     scanning: true,
@@ -434,7 +578,8 @@ function App() {
               }
             }
           }
-          const maximum = message.limits?.maxFramesPerConnection || 5000;
+          const maximum =
+            message.limits?.maxFramesPerConnection || DEFAULT_LIMITS.maxFramesPerConnection;
           const frameBuckets = mergeFrameBuckets(
             generation > current.generation ? {} : current.frameBuckets,
             incomingFrames,
@@ -474,6 +619,9 @@ function App() {
                   ? bucketFramesByConnection(message.frames)
                   : current.frameBuckets,
             targets: Array.isArray(message.targets) ? message.targets : current.targets,
+            connections: Array.isArray(message.connections)
+              ? message.connections
+              : current.connections,
             diagnostics: Array.isArray(message.diagnostics)
               ? message.diagnostics
               : current.diagnostics,
@@ -497,10 +645,16 @@ function App() {
     return undefined;
   }, []);
 
-  const connections = useMemo(
-    () => buildConnections(runtime.targets, runtime.frameBuckets),
-    [runtime.targets, runtime.frameBuckets],
-  );
+  const connections = useMemo(() => {
+    const records = resolveConnectionRecords(
+      runtime.connections,
+      buildConnections(runtime.targets, runtime.frameBuckets),
+    );
+    return records.map((connection) => ({
+      ...connection,
+      frameCount: runtime.frameBuckets[connection.key]?.length || 0,
+    }));
+  }, [runtime.connections, runtime.targets, runtime.frameBuckets]);
 
   const activeFilters = filtersByConnection[selectedConnection] || {
     direction: 'all',
@@ -532,7 +686,7 @@ function App() {
   }, [selectedFrames, activeFilters.direction, activeFilters.search]);
 
   const recentFrames = useMemo(
-    () => orderRecentFrames(filteredFrames, 'asc', TABLE_RENDER_LIMIT),
+    () => orderRecentFrames(filteredFrames, 'asc', filteredFrames.length),
     [filteredFrames],
   );
   const latestFrame = recentFrames.at(-1);
@@ -556,9 +710,23 @@ function App() {
   const selectedConnectionData = connections.find(
     (connection) => connection.key === selectedConnection,
   );
-  const visibleFrames = sortOrder === 'asc' ? recentFrames : [...recentFrames].reverse();
+  const visibleFrames = useMemo(
+    () => (sortOrder === 'asc' ? recentFrames : [...recentFrames].reverse()),
+    [recentFrames, sortOrder],
+  );
   const latestVisibleFrameId = latestFrame?.id;
-  const hasPausedConnections = connections.some((connection) => connection.capturePaused);
+  const activeConnections = connections.filter((connection) => connection.status !== 'closed');
+  const hasPausedConnections = activeConnections.some((connection) => connection.capturePaused);
+  const latestStorageError = runtime.diagnostics.find(
+    (diagnostic) => diagnostic.level === 'error' && diagnostic.source === 'storage',
+  );
+  const now = Date.now();
+  const latestCaptureError = runtime.diagnostics.find(
+    (diagnostic) =>
+      diagnostic.level === 'error' &&
+      diagnostic.source !== 'storage' &&
+      isActiveDiagnostic(diagnostic, now),
+  );
 
   useEffect(() => {
     if (!followLatest || !tableWrapRef.current) return;
@@ -581,17 +749,7 @@ function App() {
     0,
   );
 
-  const statusLabel = runtime.disconnected
-    ? '扩展后台已断开'
-    : runtime.scanning
-      ? '正在扫描 SharedWorker'
-      : selectedConnectionData
-        ? displayConnection(selectedConnectionData)
-        : '未发现 SharedWorker';
-  const countLabel =
-    runtime.generation > 0
-      ? '当前连接新增 ' + selectedFrames.length + ' 条'
-      : '当前连接 ' + selectedFrames.length + ' 条';
+  const countLabel = '当前连接 ' + selectedFrames.length + ' 条';
 
   const send = (message) => portRef.current?.postMessage(message);
 
@@ -701,14 +859,18 @@ function App() {
             </span>
             <button
               className="bulk-capture-button"
-              disabled={connections.length === 0}
+              disabled={activeConnections.length === 0}
               onClick={() =>
                 send({
                   type: 'set-all-connections-paused',
                   paused: !hasPausedConnections,
                 })
               }
-              title={hasPausedConnections ? '继续记录全部连接' : '暂停记录全部连接'}
+              title={
+                hasPausedConnections
+                  ? '继续记录全部活动连接，已关闭连接不受影响'
+                  : '暂停记录全部活动连接，已关闭连接不受影响'
+              }
             >
               <Icon name={hasPausedConnections ? 'play' : 'pause'} />
               {hasPausedConnections ? '全部开始' : '全部暂停'}
@@ -744,40 +906,34 @@ function App() {
                     </strong>
                     <small title={connection.targetUrl}>
                       {connection.frameCount +
-                        ' 条 · ' +
-                        (connection.capturePaused
-                          ? '已暂停记录'
-                          : connection.status === 'closed'
-                            ? '已关闭'
-                            : connection.status === 'connecting'
-                              ? '连接中'
-                              : connection.messagesPerSecond > 0
-                                ? '记录中 · ' + connection.messagesPerSecond + ' 条/秒'
-                                : '记录中') +
+                        ' 条保留 · ' +
+                        connectionStateLabel(connection) +
                         ' · ' +
                         connection.targetTitle}
                     </small>
                   </span>
                 </button>
-                <button
-                  aria-label={
-                    (connection.capturePaused ? '继续记录 ' : '暂停记录 ') +
-                    displayConnection(connection)
-                  }
-                  className="connection-capture-button"
-                  aria-pressed={connection.capturePaused}
-                  onClick={() => {
-                    send({
-                      type: 'set-connection-paused',
-                      targetId: connection.targetId,
-                      requestId: connection.requestId,
-                      paused: !connection.capturePaused,
-                    });
-                  }}
-                  title={connection.capturePaused ? '继续记录此连接' : '暂停记录此连接'}
-                >
-                  <Icon name={connection.capturePaused ? 'play' : 'pause'} />
-                </button>
+                {connection.status !== 'closed' && (
+                  <button
+                    aria-label={
+                      (connection.capturePaused ? '继续记录 ' : '暂停记录 ') +
+                      displayConnection(connection)
+                    }
+                    className="connection-capture-button"
+                    aria-pressed={connection.capturePaused}
+                    onClick={() =>
+                      send({
+                        type: 'set-connection-paused',
+                        targetId: connection.targetId,
+                        requestId: connection.requestId,
+                        paused: !connection.capturePaused,
+                      })
+                    }
+                    title={connection.capturePaused ? '继续记录此连接' : '暂停记录此连接'}
+                  >
+                    <Icon name={connection.capturePaused ? 'play' : 'pause'} />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -796,11 +952,32 @@ function App() {
         <section className="main-panel">
           <section className="connection-toolbar">
             <div className="connection-context-row">
-              <span className={'status-dot' + (runtime.disconnected ? ' paused' : '')} />
-              <div className="connection-context-copy">
-                <strong title={selectedConnectionData?.url || ''}>{statusLabel}</strong>
-              </div>
+              <span className="connection-period">
+                {selectedConnectionData
+                  ? formatConnectionTime(selectedConnectionData.createdAt, '未知') +
+                    ' - ' +
+                    formatConnectionTime(selectedConnectionData.closedAt, '至今')
+                  : runtime.disconnected
+                    ? '扩展后台已断开'
+                    : '请选择连接'}
+              </span>
               <span className="status-count">{countLabel}</span>
+              {latestStorageError && (
+                <span
+                  className="storage-warning"
+                  title={latestStorageError.message}
+                >
+                  存储异常
+                </span>
+              )}
+              {!latestStorageError && latestCaptureError && (
+                <span
+                  className="storage-warning"
+                  title={latestCaptureError.message}
+                >
+                  监听异常
+                </span>
+              )}
               {filteredFrames.length !== selectedFrames.length && (
                 <span className="status-count filtered-count">显示 {filteredFrames.length} 条</span>
               )}
@@ -877,70 +1054,16 @@ function App() {
             </div>
           </section>
 
-          <div
-            className="table-wrap"
-            ref={tableWrapRef}
-          >
-            <table>
-              <thead>
-                <tr>
-                  <th aria-sort={sortOrder === 'asc' ? 'ascending' : 'descending'}>
-                    <button
-                      aria-label={
-                        sortOrder === 'asc' ? '时间正序，点击切换倒序' : '时间倒序，点击切换正序'
-                      }
-                      className="sort-heading"
-                      onClick={() =>
-                        setSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'))
-                      }
-                    >
-                      时间 <span aria-hidden="true">{sortOrder === 'asc' ? '↑' : '↓'}</span>
-                    </button>
-                  </th>
-                  <th>方向</th>
-                  <th>大小</th>
-                  <th>消息预览</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleFrames.map((frame) => (
-                  <tr
-                    className={frame.id === selectedFrameId ? 'selected' : ''}
-                    key={frame.id}
-                    onClick={() => {
-                      setSelectedFrameId(frame.id);
-                      setFollowLatest(false);
-                    }}
-                  >
-                    <td>{formatClock(frame.receivedAt)}</td>
-                    <td>
-                      <span className={'direction ' + frame.direction}>
-                        {frame.direction === 'received' ? '↓ 下行' : '↑ 上行'}
-                      </span>
-                    </td>
-                    <td>{formatByteSize(frame.payloadBytes)}</td>
-                    <td
-                      className="payload-preview"
-                      title={frame.payloadData}
-                    >
-                      {frame.payloadData || '(空消息)'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {filteredFrames.length === 0 && (
-              <div className="empty-state">
-                <span className="empty-icon">↯</span>
-                <strong>{selectedConnection ? '等待当前连接消息' : '请选择 WebSocket 连接'}</strong>
-                <p>
-                  {selectedConnection
-                    ? '当前搜索或方向筛选下暂无消息。'
-                    : '从左侧选择一次具体连接后查看对应消息。'}
-                </p>
-              </div>
-            )}
-          </div>
+          <VirtualizedFrameTable
+            frames={visibleFrames}
+            selectedConnection={selectedConnection}
+            selectedFrameId={selectedFrameId}
+            setFollowLatest={setFollowLatest}
+            setSelectedFrameId={setSelectedFrameId}
+            setSortOrder={setSortOrder}
+            sortOrder={sortOrder}
+            tableWrapRef={tableWrapRef}
+          />
 
           <ResizeHandle
             axis="y"

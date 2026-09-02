@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YCloud WebSocket 监听器",
-  "version": "0.5.6",
+  "version": "0.6.6",
   "description": "监听 SharedWorker WebSocket 消息。",
   "minimum_chrome_version": "125",
   "permissions": ["debugger", "tabs"],
