@@ -1,6 +1,9 @@
 /** WebSocket 帧方向。 */
 export type FrameDirection = 'received' | 'sent';
 
+/** WebSocket 所在的浏览器运行环境。 */
+export type WebSocketTargetType = 'page' | 'worker' | 'shared_worker';
+
 /** Inspector 在内存、IndexedDB 和 UI 之间传递的标准帧结构。 */
 export interface FrameRecord {
     id: number;
@@ -9,6 +12,7 @@ export interface FrameRecord {
     direction: FrameDirection;
     requestId: string;
     targetId: string;
+    targetType: WebSocketTargetType;
     targetUrl: string;
     socketUrl: string;
     receivedAt: number;
@@ -27,6 +31,7 @@ export interface FrameRecord {
 export interface ConnectionRecord {
     key: string;
     targetId: string;
+    targetType: WebSocketTargetType;
     targetTitle: string;
     targetUrl: string;
     requestId: string;
@@ -62,7 +67,7 @@ export interface SocketRecord {
     urlSource?: 'runtime';
 }
 
-/** 通过 SharedWorker 运行时扫描发现的 WebSocket。 */
+/** 通过目标运行时扫描发现的 WebSocket。 */
 export interface DiscoveredSocket {
     url: string;
     readyState: number;
@@ -72,7 +77,7 @@ export interface DiscoveredSocket {
 /** Inspector 展示的捕获目标快照。 */
 export interface CaptureTarget {
     id: string;
-    type?: string;
+    type: WebSocketTargetType;
     title: string;
     url: string;
     attachedAt: number;

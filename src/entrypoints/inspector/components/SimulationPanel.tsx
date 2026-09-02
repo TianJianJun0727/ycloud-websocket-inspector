@@ -2,6 +2,7 @@ import { AlertTriangle, ArrowDownToLine, Send, X, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import type { ConnectionRecord, SimulationAction, SimulationResult } from '../../../types/capture';
+import { targetTypeLabel } from '../inspector-helpers';
 
 interface SimulationInput {
     action: SimulationAction;
@@ -66,6 +67,10 @@ export const SimulationPanel = ({ connection, pending, result, onClose, onExecut
                     <div>
                         <dt>WebSocket</dt>
                         <dd title={connection.url}>{connection.url}</dd>
+                    </div>
+                    <div>
+                        <dt>运行环境</dt>
+                        <dd>{targetTypeLabel(connection.targetType)}</dd>
                     </div>
                     <div>
                         <dt>状态</dt>
@@ -149,7 +154,7 @@ export const SimulationPanel = ({ connection, pending, result, onClose, onExecut
                         <p>
                             {tab === 'send'
                                 ? '该操作会通过真实 WebSocket 发送到服务器，可能改变业务数据。'
-                                : '该操作仅触发当前 SharedWorker 内的业务监听器，不会生成真实网络帧或改变连接状态。'}
+                                : '该操作仅触发当前运行环境内的业务监听器，不会生成真实网络帧或改变连接状态。'}
                         </p>
                     </div>
 

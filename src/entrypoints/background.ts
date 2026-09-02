@@ -18,6 +18,7 @@ import type {
     InspectorMessage,
     SimulationAction,
     SocketRecord,
+    WebSocketTargetType,
 } from '../types/capture';
 
 interface RuntimeRemoteObject {
@@ -52,6 +53,33 @@ interface WorkerScope {
     href?: string;
 }
 
+/** 将 Chrome 调试目标归一化为页面、Dedicated Worker 或 SharedWorker。 */
+const resolveWebSocketTargetType = (
+    target: chrome.debugger.TargetInfo,
+    scope: WorkerScope | undefined,
+): WebSocketTargetType | null => {
+    const debuggerTargetType = String(target.type);
+    if (debuggerTargetType === 'shared_worker' || scope?.scopeName === 'SharedWorkerGlobalScope')
+        return 'shared_worker';
+    if (debuggerTargetType === 'worker' || scope?.scopeName === 'DedicatedWorkerGlobalScope') return 'worker';
+    if (debuggerTargetType === 'page') return 'page';
+    return null;
+};
+
+/** 提供缺少调试目标标题时的稳定展示名称。 */
+const targetTypeFallbackTitle = (targetType: WebSocketTargetType): string => {
+    if (targetType === 'shared_worker') return 'SharedWorker';
+    if (targetType === 'worker') return 'Web Worker';
+    return '页面';
+};
+
+/** 仅扫描普通网页及 Web Worker，排除浏览器内部页和其他扩展页面。 */
+const isWebSocketTargetCandidate = (target: chrome.debugger.TargetInfo): boolean => {
+    const targetType = String(target.type);
+    if (targetType === 'page') return /^(https?|file):/.test(target.url || '');
+    return ['worker', 'shared_worker', 'other'].includes(targetType);
+};
+
 interface RuntimeSimulationResult {
     success: boolean;
     message: string;
@@ -61,6 +89,8 @@ interface PendingSimulationSend {
     operationId: string;
     payload: string;
     socketUrl: string;
+    registeredAt: number;
+    syntheticFrameId?: number;
     expiresAt: number;
 }
 
@@ -168,7 +198,8 @@ export default defineBackground(() => {
             key,
             targetId,
             requestId,
-            targetTitle: target?.title || 'SharedWorker',
+            targetType: target?.type || 'shared_worker',
+            targetTitle: target?.title || targetTypeFallbackTitle(target?.type || 'shared_worker'),
             targetUrl: target?.url || '',
             url: socket?.url || '',
             createdAt: socket?.createdAt || Date.now(),
@@ -177,7 +208,9 @@ export default defineBackground(() => {
         };
         const next: ConnectionRecord = {
             ...current,
-            targetTitle: target?.title || current.targetTitle || 'SharedWorker',
+            targetType: target?.type || current.targetType || 'shared_worker',
+            targetTitle:
+                target?.title || current.targetTitle || targetTypeFallbackTitle(target?.type || 'shared_worker'),
             targetUrl: target?.url || current.targetUrl || '',
             url: socket?.url || current.url || '',
             createdAt: socket?.createdAt || current.createdAt || Date.now(),
@@ -369,7 +402,8 @@ export default defineBackground(() => {
                     key: targetId + '::' + requestId,
                     targetId,
                     requestId,
-                    targetTitle: target?.title || 'SharedWorker',
+                    targetType: target?.type || 'shared_worker',
+                    targetTitle: target?.title || targetTypeFallbackTitle(target?.type || 'shared_worker'),
                     targetUrl: target?.url || '',
                     url: socket.url || '',
                     createdAt: resetAt,
@@ -438,35 +472,42 @@ export default defineBackground(() => {
         queueFrameBroadcast(record, evictedFrameIds);
     };
 
-    /** 将不会产生 CDP 网络帧的模拟接收和系统事件写入当前连接列表。 */
+    /** 将模拟操作构造成列表帧；发送操作仅在 CDP 未上报真实帧时调用。 */
     const appendSimulationFrame = (
         command: Extract<InspectorCommand, { type: 'simulate' }>,
         targetUrl: string,
-    ): void => {
-        if (command.action === 'send') return;
+    ): FrameRecord => {
         const systemPayload =
             command.action === 'close'
                 ? `[模拟系统事件] close (${command.closeCode || 1000}) ${command.closeReason || ''}`.trim()
                 : `[模拟系统事件] ${command.action}`;
         const record = buildFrameRecord({
             id: nextFrameId++,
-            direction: 'received',
+            direction: command.action === 'send' ? 'sent' : 'received',
             params: {
                 requestId: command.requestId,
                 timestamp: Date.now() / 1000,
                 response: {
                     opcode: 1,
                     mask: false,
-                    payloadData: command.action === 'receive' ? command.payload : systemPayload,
+                    payloadData:
+                        command.action === 'send' || command.action === 'receive' ? command.payload : systemPayload,
                 },
             },
             socketUrl: command.socketUrl,
             targetId: command.targetId,
+            targetType: attachedTargets.get(command.targetId)?.type || 'shared_worker',
             targetUrl,
         });
-        record.simulation = command.action === 'receive' ? 'receive' : 'system';
-        record.eventName = command.action === 'receive' ? '模拟接收' : `模拟 ${command.action}`;
+        record.simulation = command.action === 'send' ? 'send' : command.action === 'receive' ? 'receive' : 'system';
+        record.eventName =
+            command.action === 'send'
+                ? '模拟发送'
+                : command.action === 'receive'
+                  ? '模拟接收'
+                  : `模拟 ${command.action}`;
         appendFrame(record);
+        return record;
     };
 
     /** 登记插件发出的消息，用于标记随后到达的真实 CDP 发送帧。 */
@@ -479,18 +520,21 @@ export default defineBackground(() => {
             operationId: command.operationId,
             payload: command.payload,
             socketUrl: command.socketUrl,
+            registeredAt: now,
             expiresAt: now + 10000,
         });
         pendingSimulationSends.set(key, queue);
     };
 
     /** 移除执行失败或已经被 CDP 发送帧消费的模拟发送登记。 */
-    const removeSimulationSend = (connectionKey: string, operationId: string): void => {
+    const removeSimulationSend = (connectionKey: string, operationId: string): PendingSimulationSend | null => {
         const queue = pendingSimulationSends.get(connectionKey);
-        if (!queue) return;
+        if (!queue) return null;
+        const removed = queue.find((item) => item.operationId === operationId) || null;
         const remaining = queue.filter((item) => item.operationId !== operationId);
         if (remaining.length > 0) pendingSimulationSends.set(connectionKey, remaining);
         else pendingSimulationSends.delete(connectionKey);
+        return removed;
     };
 
     /** 消费指定连接队列中与真实发送帧匹配的模拟发送登记。 */
@@ -499,20 +543,21 @@ export default defineBackground(() => {
         payload: string,
         socketUrl: string | undefined,
         now: number,
-    ): boolean => {
+        requireSocketUrl: boolean,
+    ): PendingSimulationSend | null => {
         const queue = (pendingSimulationSends.get(connectionKey) || []).filter((item) => item.expiresAt > now);
         const index = queue.findIndex(
-            (item) => item.payload === payload && (!socketUrl || item.socketUrl === socketUrl),
+            (item) => item.payload === payload && (!requireSocketUrl || !socketUrl || item.socketUrl === socketUrl),
         );
         if (index < 0) {
             if (queue.length > 0) pendingSimulationSends.set(connectionKey, queue);
             else pendingSimulationSends.delete(connectionKey);
-            return false;
+            return null;
         }
-        queue.splice(index, 1);
+        const [matched] = queue.splice(index, 1);
         if (queue.length > 0) pendingSimulationSends.set(connectionKey, queue);
         else pendingSimulationSends.delete(connectionKey);
-        return true;
+        return matched || null;
     };
 
     /** 将匹配连接、地址和 payload 的下一条发送帧识别为插件模拟发送。 */
@@ -521,15 +566,63 @@ export default defineBackground(() => {
         requestId: string,
         payload: string,
         socketUrl: string | undefined,
-    ): boolean => {
+    ): PendingSimulationSend | null => {
         const now = Date.now();
         const exactConnectionKey = targetId + '::' + requestId;
-        if (consumeSimulationSendFromQueue(exactConnectionKey, payload, socketUrl, now)) return true;
+        const exactMatch = consumeSimulationSendFromQueue(exactConnectionKey, payload, socketUrl, now, false);
+        if (exactMatch) return exactMatch;
         for (const connectionKey of pendingSimulationSends.keys()) {
             if (connectionKey === exactConnectionKey || !connectionKey.startsWith(targetId + '::')) continue;
-            if (consumeSimulationSendFromQueue(connectionKey, payload, socketUrl, now)) return true;
+            const fallbackMatch = consumeSimulationSendFromQueue(connectionKey, payload, socketUrl, now, true);
+            if (fallbackMatch) return fallbackMatch;
         }
-        return false;
+        return null;
+    };
+
+    /** 发送成功后校正 CDP 帧标记，Chrome 未上报时补充一条模拟发送记录。 */
+    const finalizeSimulationSend = async (
+        command: Extract<InspectorCommand, { type: 'simulate' }>,
+        targetUrl: string,
+    ): Promise<void> => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 250));
+        const connectionKey = command.targetId + '::' + command.requestId;
+        const pending = pendingSimulationSends
+            .get(connectionKey)
+            ?.find((item) => item.operationId === command.operationId);
+        if (!pending) return;
+        let matchingFrame: FrameRecord | null = null;
+        for (const frames of frameBuckets.values()) {
+            for (let index = frames.length - 1; index >= 0; index -= 1) {
+                const frame = frames[index]!;
+                if (
+                    frame.targetId === command.targetId &&
+                    frame.direction === 'sent' &&
+                    frame.payloadData === pending.payload &&
+                    frame.receivedAt >= pending.registeredAt
+                ) {
+                    if (!matchingFrame || frame.receivedAt < matchingFrame.receivedAt) matchingFrame = frame;
+                    break;
+                }
+            }
+        }
+        if (!matchingFrame) {
+            pending.syntheticFrameId = appendSimulationFrame(command, targetUrl).id;
+            pending.expiresAt = Date.now() + 10000;
+            setTimeout(() => removeSimulationSend(connectionKey, command.operationId), 10000);
+            return;
+        }
+        removeSimulationSend(connectionKey, command.operationId);
+        matchingFrame.simulation = 'send';
+        matchingFrame.eventName = '模拟发送';
+        queuePersistence(() =>
+            persistFrameBatch({
+                frames: [matchingFrame!],
+                evictedFrameIds: [],
+                connections: [],
+                generation: captureGeneration,
+            }),
+        );
+        broadcast({ type: 'frame', generation: captureGeneration, frame: matchingFrame });
     };
     const safeDetach = async (targetId: string): Promise<void> => {
         try {
@@ -681,7 +774,8 @@ export default defineBackground(() => {
                 returnByValue: true,
             });
             const scope = result?.result?.value as WorkerScope | undefined;
-            if (scope?.scopeName !== 'SharedWorkerGlobalScope') {
+            const targetType = resolveWebSocketTargetType(target, scope);
+            if (!targetType) {
                 blockedTargetIds.add(target.id);
                 await safeDetach(target.id);
                 return;
@@ -689,9 +783,9 @@ export default defineBackground(() => {
             await sendDebuggerCommand(debuggee, 'Network.enable');
             const targetRecord: CaptureTarget = {
                 id: target.id,
-                type: target.type,
-                title: target.title || 'SharedWorker',
-                url: scope.href || target.url || '',
+                type: targetType,
+                title: target.title || targetTypeFallbackTitle(targetType),
+                url: scope?.href || target.url || '',
                 attachedAt: Date.now(),
                 discoveredSockets: [],
             };
@@ -704,19 +798,21 @@ export default defineBackground(() => {
                     diagnostic.source === 'capture' &&
                     diagnostic.targetId === target.id,
             );
-            pushDiagnostic('info', '已连接 SharedWorker 调试目标', target.id);
+            pushDiagnostic('info', `已连接${targetTypeFallbackTitle(targetType)}调试目标`, target.id);
             broadcast();
         } catch (error) {
             blockedTargetIds.add(target.id);
             await safeDetach(target.id);
-            pushDiagnostic('error', error?.message || '连接 SharedWorker 失败', target.id);
+            pushDiagnostic('error', error?.message || '连接 WebSocket 调试目标失败', target.id);
             broadcast();
         }
     };
     const withTimeout = <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
         return Promise.race([
             promise,
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('扫描 SharedWorker 超时')), timeoutMs)),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('扫描 WebSocket 目标超时')), timeoutMs),
+            ),
         ]);
     };
     const scanTargets = async () => {
@@ -730,18 +826,18 @@ export default defineBackground(() => {
                     diagnostic.level === 'error' && diagnostic.source === 'capture' && diagnostic.targetId === '',
             );
             const liveIds = new Set(targets.map((target) => target.id));
-            for (const targetId of [...blockedTargetIds]) {
+            for (const targetId of blockedTargetIds) {
                 if (!liveIds.has(targetId)) blockedTargetIds.delete(targetId);
             }
-            for (const targetId of [...attachedTargets.keys()]) {
+            for (const targetId of attachedTargets.keys()) {
                 if (!liveIds.has(targetId)) removeTarget(targetId);
             }
-            const candidates = targets.filter((target) => ['worker', 'shared_worker', 'other'].includes(target.type));
+            const candidates = targets.filter(isWebSocketTargetCandidate);
             const results = await Promise.allSettled(
                 candidates.map((target) => withTimeout(inspectCandidate(target), 3000)),
             );
             if (results.some((result) => result.status === 'rejected')) {
-                pushDiagnostic('warning', '部分 SharedWorker 目标扫描超时');
+                pushDiagnostic('warning', '部分 WebSocket 目标扫描超时');
             }
         } catch (error) {
             pushDiagnostic('error', error?.message || '扫描调试目标失败');
@@ -771,8 +867,8 @@ export default defineBackground(() => {
             scanTimer = null;
             flushFrameBatch();
             await persistenceQueue;
-            await Promise.all([...attachedTargets.keys()].map(safeDetach));
-            for (const targetId of [...attachedTargets.keys()]) removeTarget(targetId);
+            await Promise.all(Array.from(attachedTargets.keys(), safeDetach));
+            for (const targetId of attachedTargets.keys()) removeTarget(targetId);
             await persistenceQueue;
             pausedConnections.clear();
             pauseNewConnections = false;
@@ -867,18 +963,26 @@ export default defineBackground(() => {
         }
         const connectionKey = targetId + '::' + eventParams.requestId;
         if (pausedConnections.has(connectionKey)) return;
+        const simulationSend =
+            direction === 'sent'
+                ? consumeSimulationSend(
+                      targetId,
+                      eventParams.requestId,
+                      eventParams.response?.payloadData || '',
+                      socket?.url,
+                  )
+                : null;
+        if (simulationSend?.syntheticFrameId) return;
         const frame = buildFrameRecord({
             id: nextFrameId++,
             direction,
             params: eventParams,
             socketUrl: socket?.url,
             targetId,
+            targetType: target.type,
             targetUrl: target.url,
         });
-        if (
-            direction === 'sent' &&
-            consumeSimulationSend(targetId, eventParams.requestId, eventParams.response?.payloadData || '', socket?.url)
-        ) {
+        if (simulationSend) {
             frame.simulation = 'send';
             frame.eventName = '模拟发送';
         }
@@ -990,7 +1094,9 @@ export default defineBackground(() => {
                             removeSimulationSend(command.targetId + '::' + command.requestId, command.operationId);
                         }
                         if (result.success) {
-                            appendSimulationFrame(command, attachedTargets.get(command.targetId)?.url || '');
+                            const targetUrl = attachedTargets.get(command.targetId)?.url || '';
+                            if (command.action === 'send') void finalizeSimulationSend(command, targetUrl);
+                            else appendSimulationFrame(command, targetUrl);
                         }
                         port.postMessage({
                             type: 'simulation-result',

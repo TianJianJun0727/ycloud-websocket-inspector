@@ -3,7 +3,7 @@ import { useState } from 'react';
 
 import { formatByteSize } from '../../../lib/frame-utils';
 import type { FrameRecord } from '../../../types/capture';
-import { displayConnection, displayUrl, formatClock } from '../inspector-helpers';
+import { displayConnection, displayUrl, formatClock, targetTypeLabel } from '../inspector-helpers';
 
 interface FrameDetailProps {
     copied: boolean;
@@ -91,7 +91,7 @@ export const FrameDetail = ({ copied, formattedPayload, frame, showMetadata, onC
                             <dd title={frame.socketUrl}>{frame.socketUrl || displayConnection(frame)}</dd>
                         </div>
                         <div>
-                            <dt>SharedWorker</dt>
+                            <dt>{targetTypeLabel(frame.targetType)}</dt>
                             <dd title={frame.targetUrl}>{displayUrl(frame.targetUrl)}</dd>
                         </div>
                         <div>

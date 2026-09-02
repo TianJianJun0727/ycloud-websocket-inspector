@@ -1,6 +1,12 @@
 import dayjs from 'dayjs';
 
-import type { CaptureTarget, ConnectionRecord, FrameRecord, SocketRecord } from '../../types/capture';
+import type {
+    CaptureTarget,
+    ConnectionRecord,
+    FrameRecord,
+    SocketRecord,
+    WebSocketTargetType,
+} from '../../types/capture';
 
 /** 将数值限制在给定闭区间内。 */
 export const clamp = (value: number, minimum: number, maximum: number): number =>
@@ -29,11 +35,18 @@ export const displayUrl = (url: string, fallback = '未知 URL'): string => {
     }
 };
 
-/** 优先展示 WebSocket URL，缺失时回退到 Worker 与 requestId。 */
+/** 将连接来源转换为连接列表和详情共用的短标签。 */
+export const targetTypeLabel = (targetType: WebSocketTargetType | undefined): string => {
+    if (targetType === 'page') return '页面';
+    if (targetType === 'worker') return 'Web Worker';
+    return 'SharedWorker';
+};
+
+/** 优先展示 WebSocket URL，缺失时回退到运行环境与 requestId。 */
 export const displayConnection = (connection: { url?: string; targetUrl: string; requestId: string }): string =>
     connection.url
         ? displayUrl(connection.url)
-        : `${displayUrl(connection.targetUrl, 'SharedWorker')} · WS #${String(connection.requestId).slice(-8)}`;
+        : `${displayUrl(connection.targetUrl, '运行环境')} · WS #${String(connection.requestId).slice(-8)}`;
 
 /** 将连接运行状态转换为用户可读标签。 */
 export const connectionStateLabel = (connection: ConnectionRecord): string => {
@@ -69,7 +82,8 @@ export const buildConnections = (
             result.push({
                 key,
                 targetId: target.id,
-                targetTitle: target.title || 'SharedWorker',
+                targetType: target.type || frames[0]?.targetType || 'shared_worker',
+                targetTitle: target.title || targetTypeLabel(target.type),
                 targetUrl: target.url,
                 requestId: socket.requestId,
                 url: socket.url || frames.at(-1)?.socketUrl || '',

@@ -1,7 +1,7 @@
 import { Activity, CirclePause, CirclePlay, MessageCircle, ShieldCheck } from 'lucide-react';
 
 import type { ConnectionRecord } from '../../../types/capture';
-import { connectionStateLabel, displayConnection, formatConnectionTime } from '../inspector-helpers';
+import { connectionStateLabel, displayConnection, formatConnectionTime, targetTypeLabel } from '../inspector-helpers';
 
 interface ConnectionSidebarProps {
     connections: ConnectionRecord[];
@@ -80,8 +80,13 @@ export const ConnectionSidebar = ({
                                 <strong title={connection.url || connection.targetUrl}>
                                     {displayConnection(connection)}
                                 </strong>
-                                <small>
-                                    {connection.frameCount} 条 · {connectionStateLabel(connection)}
+                                <small className="connection-status-line">
+                                    <span className={`connection-target-badge target-${connection.targetType}`}>
+                                        {targetTypeLabel(connection.targetType)}
+                                    </span>
+                                    <span>
+                                        {connection.frameCount} 条 · {connectionStateLabel(connection)}
+                                    </span>
                                 </small>
                                 <small className="connection-time">{formatConnectionRange(connection)}</small>
                             </span>
@@ -102,7 +107,7 @@ export const ConnectionSidebar = ({
                             )}
                         </button>
                     ))}
-                    {!connections.length && <p className="empty-copy">正在发现 SharedWorker WebSocket…</p>}
+                    {!connections.length && <p className="empty-copy">正在发现 WebSocket 连接…</p>}
                 </div>
             </section>
             <section className="side-card notice-card">

@@ -699,6 +699,43 @@ button {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.connection-copy .connection-status-line {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.connection-target-badge {
+    display: inline-flex;
+    min-width: 0;
+    flex: none;
+    align-items: center;
+    padding: 1px 5px;
+    border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+    border-radius: 4px;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+.connection-target-badge.target-page {
+    color: #2474b7;
+    background: rgba(36, 116, 183, 0.08);
+}
+.connection-target-badge.target-worker {
+    color: #15856d;
+    background: rgba(21, 133, 109, 0.08);
+}
+.connection-target-badge.target-shared_worker {
+    color: var(--accent-strong);
+    background: var(--accent-soft);
+}
+:root[data-color-mode='dark'] .connection-target-badge.target-page {
+    color: #83c9ff;
+    background: rgba(62, 158, 230, 0.14);
+}
+:root[data-color-mode='dark'] .connection-target-badge.target-worker {
+    color: #72d8bd;
+    background: rgba(48, 181, 147, 0.14);
+}
 .connection-copy .connection-time {
     margin-top: 2px;
     color: color-mix(in srgb, var(--muted) 82%, transparent);

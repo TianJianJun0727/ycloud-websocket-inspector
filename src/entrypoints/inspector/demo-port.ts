@@ -16,6 +16,7 @@ export const createDemoPort = (): InspectorPort => {
     const now = Date.now();
     const target: CaptureTarget = {
         id: 'demo-worker',
+        type: 'shared_worker',
         title: 'inbox-shared-worker',
         url: 'http://localhost:3091/inbox-web/ws.shared-worker.js',
         attachedAt: now - 120000,
@@ -67,6 +68,7 @@ export const createDemoPort = (): InspectorPort => {
             truncated: false,
             socketUrl: requestId.endsWith('1') ? 'ws://localhost:8787/inbox' : 'wss://push.example.com/notifications',
             targetId: target.id,
+            targetType: target.type,
             targetUrl: target.url,
             receivedAt: now - (count - index) * 730,
             timestamp: index,
@@ -123,6 +125,7 @@ export const createDemoPort = (): InspectorPort => {
                         direction: message.action === 'send' ? 'sent' : 'received',
                         requestId: message.requestId,
                         targetId: message.targetId,
+                        targetType: target.type,
                         targetUrl: target.url,
                         socketUrl: message.socketUrl,
                         receivedAt: Date.now(),

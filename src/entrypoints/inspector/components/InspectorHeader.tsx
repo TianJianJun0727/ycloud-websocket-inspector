@@ -71,7 +71,7 @@ export const InspectorHeader = ({
                 </span>
                 <div>
                     <h1>YCloud WebSocket 监听器</h1>
-                    <p>监听 SharedWorker WebSocket 消息</p>
+                    <p>监听页面与 Worker WebSocket 消息</p>
                 </div>
             </div>
             <div className="header-actions">

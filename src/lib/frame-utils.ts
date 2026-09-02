@@ -35,6 +35,7 @@ export const buildFrameRecord = ({
     params,
     socketUrl,
     targetId,
+    targetType,
     targetUrl,
     receivedAt = Date.now(),
 }: {
@@ -47,6 +48,7 @@ export const buildFrameRecord = ({
     };
     socketUrl?: string;
     targetId: string;
+    targetType: WebSocketTargetType;
     targetUrl: string;
     receivedAt?: number;
 }): FrameRecord => {
@@ -61,6 +63,7 @@ export const buildFrameRecord = ({
         timestamp: params.timestamp,
         socketUrl: socketUrl || '',
         targetId,
+        targetType,
         targetUrl,
         opcode: params.response?.opcode ?? 1,
         mask: Boolean(params.response?.mask),
@@ -78,4 +81,4 @@ export const formatByteSize = (bytes: number): string => {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
-import type { FrameDirection, FrameRecord } from '../types/capture';
+import type { FrameDirection, FrameRecord, WebSocketTargetType } from '../types/capture';

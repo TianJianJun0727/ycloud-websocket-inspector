@@ -7,7 +7,7 @@ export default defineConfig({
     manifest: {
         name: 'YCloud WebSocket 监听器',
         version: '0.6.6',
-        description: '监听 SharedWorker WebSocket 消息。',
+        description: '监听页面、Web Worker 与 SharedWorker 中的 WebSocket 消息。',
         minimum_chrome_version: '125',
         permissions: ['debugger', 'tabs'],
         action: {

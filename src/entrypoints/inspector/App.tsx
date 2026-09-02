@@ -336,7 +336,7 @@ export const App = () => {
                 { type: 'application/json' },
             ),
         );
-        link.download = `shared-worker-websocket-frames-${Date.now()}.json`;
+        link.download = `websocket-frames-${Date.now()}.json`;
         link.click();
         setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     };
@@ -380,7 +380,7 @@ export const App = () => {
         setSimulationOpen(true);
     };
 
-    /** 将模拟操作提交给当前连接所在的 SharedWorker 调试目标。 */
+    /** 将模拟操作提交给当前连接所在的页面或 Worker 调试目标。 */
     const executeSimulation = (input: {
         action: SimulationAction;
         payload: string;
@@ -408,7 +408,7 @@ export const App = () => {
             setSimulationResult({
                 operationId,
                 success: false,
-                message: '模拟操作响应超时，请确认 SharedWorker 仍在运行',
+                message: '模拟操作响应超时，请确认当前页面或 Worker 仍在运行',
             });
         }, 6000);
         setSimulationPending(true);
