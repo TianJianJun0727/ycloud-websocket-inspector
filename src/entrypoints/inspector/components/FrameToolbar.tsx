@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Download, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, ListEnd, Search, Trash2 } from 'lucide-react';
 
 import type { CaptureDiagnostic, ConnectionFilter, ConnectionRecord } from '../../../types/capture';
 import { displayConnection } from '../inspector-helpers';
@@ -8,6 +8,7 @@ interface FrameToolbarProps {
     captureError?: CaptureDiagnostic;
     disconnected: boolean;
     filteredFrameCount: number;
+    followLatest: boolean;
     selectedConnection: string | null;
     selectedConnectionData?: ConnectionRecord;
     selectedFrameCount: number;
@@ -15,6 +16,7 @@ interface FrameToolbarProps {
     onClear: () => void;
     onExport: () => void;
     onFilterChange: <Key extends keyof ConnectionFilter>(name: Key, value: ConnectionFilter[Key]) => void;
+    onFollowLatestChange: (value: boolean) => void;
 }
 
 const DIRECTIONS: Array<{ value: ConnectionFilter['direction']; label: string; icon?: typeof ArrowDown }> = [
@@ -29,6 +31,7 @@ export const FrameToolbar = ({
     captureError,
     disconnected,
     filteredFrameCount,
+    followLatest,
     selectedConnection,
     selectedConnectionData,
     selectedFrameCount,
@@ -36,6 +39,7 @@ export const FrameToolbar = ({
     onClear,
     onExport,
     onFilterChange,
+    onFollowLatestChange,
 }: FrameToolbarProps) => (
     <div className="frame-toolbar">
         <div className="frame-summary">
@@ -78,6 +82,17 @@ export const FrameToolbar = ({
                     ))}
                 </div>
             </div>
+            <button
+                aria-pressed={followLatest}
+                className={`follow-latest-button${followLatest ? ' is-active' : ''}`}
+                disabled={!selectedConnection}
+                onClick={() => onFollowLatestChange(!followLatest)}
+                title={followLatest ? '停止跟随最新消息' : '跟随最新消息'}
+                type="button"
+            >
+                <ListEnd size={14} />
+                <span>跟随最新</span>
+            </button>
             <button
                 className="icon-button compact"
                 disabled={!selectedConnection}

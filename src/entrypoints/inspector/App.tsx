@@ -132,6 +132,7 @@ export const App = () => {
     const [heartbeatMessagesText, setHeartbeatMessagesText] = useState(DEFAULT_HEARTBEAT_MESSAGES);
     const [showMetadata, setShowMetadata] = useState(true);
     const [colorMode, setColorMode] = useState<ColorMode>('system');
+    const [followLatest, setFollowLatest] = useState(true);
     const [copied, setCopied] = useState(false);
 
     const records = useMemo(
@@ -388,6 +389,7 @@ export const App = () => {
                                 captureError={captureError}
                                 disconnected={runtime.disconnected}
                                 filteredFrameCount={filteredFrames.length}
+                                followLatest={followLatest}
                                 selectedConnection={selectedConnection}
                                 selectedConnectionData={selectedConnectionData}
                                 selectedFrameCount={selectedFrames.length}
@@ -395,11 +397,13 @@ export const App = () => {
                                 onClear={clearSelectedConnection}
                                 onExport={exportFrames}
                                 onFilterChange={updateFilter}
+                                onFollowLatestChange={setFollowLatest}
                             />
                             <VirtualizedFrameTable
                                 key={selectedConnection ?? 'no-connection'}
                                 containerRef={tableRef}
                                 frames={visibleFrames}
+                                followLatest={followLatest}
                                 selectedConnection={selectedConnection}
                                 selectedFrameId={selectedFrameId}
                                 sortOrder={sortOrder}

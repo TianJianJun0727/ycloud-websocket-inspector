@@ -10,6 +10,7 @@ import { formatClock } from './inspector-helpers';
 interface VirtualizedFrameTableProps {
     containerRef: RefObject<HTMLDivElement | null>;
     frames: FrameRecord[];
+    followLatest: boolean;
     selectedConnection: string | null;
     selectedFrameId: number | null;
     sortOrder: 'asc' | 'desc';
@@ -44,6 +45,7 @@ const columns: Array<ColumnDef<typeof features, FrameRecord>> = [
 export const VirtualizedFrameTable = ({
     containerRef,
     frames,
+    followLatest,
     selectedConnection,
     selectedFrameId,
     sortOrder,
@@ -61,10 +63,14 @@ export const VirtualizedFrameTable = ({
     const virtualRows = virtualizer.getVirtualItems();
     const top = virtualRows[0]?.start || 0;
     const bottom = virtualRows.length ? virtualizer.getTotalSize() - virtualRows.at(-1)!.end : 0;
+    const latestRowIndex = sortOrder === 'asc' ? rows.length - 1 : 0;
+    const latestFrameId = rows[latestRowIndex]?.original.id;
 
+    /** 新消息到达或重新开启跟随时，将虚拟列表定位到当前排序中的最新一端。 */
     useEffect(() => {
-        virtualizer.scrollToOffset(0);
-    }, [selectedConnection, sortOrder]);
+        if (!followLatest || latestFrameId === undefined) return;
+        virtualizer.scrollToIndex(latestRowIndex, { align: sortOrder === 'asc' ? 'end' : 'start' });
+    }, [followLatest, latestFrameId, latestRowIndex, selectedConnection, sortOrder, virtualizer]);
 
     return (
         <div className="table-scroll" ref={containerRef}>

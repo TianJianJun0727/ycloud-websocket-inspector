@@ -809,6 +809,32 @@ button {
     color: white;
     background: var(--accent);
 }
+.follow-latest-button {
+    display: inline-flex;
+    height: 31px;
+    align-items: center;
+    gap: 5px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--surface-solid) 76%, transparent);
+    cursor: pointer;
+    font-size: 10px;
+}
+.follow-latest-button.is-active {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    color: var(--accent-strong);
+    background: var(--accent-soft);
+}
+.follow-latest-button:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    outline-offset: 2px;
+}
+.follow-latest-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.42;
+}
 .check-control,
 .toggle-control {
     display: flex;
