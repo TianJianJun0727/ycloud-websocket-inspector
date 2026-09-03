@@ -132,6 +132,8 @@ export default defineBackground(() => {
     const FRAME_BATCH_SIZE = 64;
     const FRAME_BATCH_INTERVAL_MS = 70;
     const TARGET_SCAN_INTERVAL_MS = 5000;
+    const TARGET_SCAN_CONCURRENCY = 2;
+    const TARGET_RETRY_DELAYS_MS = [5000, 30000, 120000, 600000] as const;
     const TARGET_SCAN_STEP_DELAY_MS = 120;
     const DETACH_GRACE_MS = 5000;
     const TRANSIENT_DIAGNOSTIC_TTL_MS = 10000;
@@ -141,6 +143,7 @@ export default defineBackground(() => {
     const socketMaps = new Map<string, Map<string, SocketRecord>>();
     const blockedTargetIds = new Set<string>();
     const occupiedTargetIds = new Set<string>();
+    const targetRetryStates = new Map<string, { failureCount: number; retryAt: number }>();
     const pausedConnections = new Set<string>();
     const frameBuckets = new Map<string, FrameRecord[]>();
     const frameOrder: Array<{ id: number; key: string }> = [];
@@ -1247,10 +1250,12 @@ export default defineBackground(() => {
             );
             if (!targetType) {
                 blockedTargetIds.add(target.id);
+                targetRetryStates.delete(target.id);
                 await safeDetach(target.id);
                 removeTarget(target.id);
                 return;
             }
+            targetRetryStates.delete(target.id);
             if (targetType === 'page') {
                 await sendDebuggerCommand(debuggee, 'Target.setAutoAttach', {
                     autoAttach: true,
@@ -1260,7 +1265,10 @@ export default defineBackground(() => {
                 });
             }
         } catch (error) {
-            blockedTargetIds.add(target.id);
+            const previousRetry = targetRetryStates.get(target.id);
+            const failureCount = (previousRetry?.failureCount || 0) + 1;
+            const retryDelay = TARGET_RETRY_DELAYS_MS[Math.min(failureCount - 1, TARGET_RETRY_DELAYS_MS.length - 1)];
+            targetRetryStates.set(target.id, { failureCount, retryAt: Date.now() + retryDelay });
             await safeDetach(target.id);
             removeTarget(target.id);
             pushDiagnostic('error', error?.message || '连接 WebSocket 调试目标失败', target.id);
@@ -1274,6 +1282,50 @@ export default defineBackground(() => {
                 setTimeout(() => reject(new Error('扫描 WebSocket 目标超时')), timeoutMs),
             ),
         ]);
+    };
+    /** 仅将新增或退避到期的目标加入扫描队列，稳定目标不再产生等待开销。 */
+    const shouldQueueTarget = (target: chrome.debugger.TargetInfo): boolean => {
+        if (
+            attachedTargets.has(target.id) ||
+            blockedTargetIds.has(target.id) ||
+            occupiedTargetIds.has(target.id) ||
+            target.url?.startsWith(chrome.runtime.getURL(''))
+        ) {
+            return false;
+        }
+        const retryState = targetRetryStates.get(target.id);
+        return !retryState || retryState.retryAt <= Date.now();
+    };
+    /** 使用固定并发处理待附加目标，避免标签页较多时瞬间创建大量 CDP 会话。 */
+    const inspectCandidateQueue = async (
+        candidates: chrome.debugger.TargetInfo[],
+        resolveOwner?: (
+            target: chrome.debugger.TargetInfo,
+        ) => Promise<{ ownerPageUrl?: string; ownerTabId?: number }>,
+    ): Promise<boolean> => {
+        let nextIndex = 0;
+        let partialScanFailed = false;
+        const worker = async (): Promise<void> => {
+            while (nextIndex < candidates.length) {
+                const target = candidates[nextIndex++];
+                if (!shouldQueueTarget(target)) continue;
+                try {
+                    const owner = resolveOwner ? await resolveOwner(target) : undefined;
+                    await withTimeout(inspectCandidate(target, owner?.ownerPageUrl, owner?.ownerTabId), 3000);
+                } catch {
+                    const previousRetry = targetRetryStates.get(target.id);
+                    const failureCount = (previousRetry?.failureCount || 0) + 1;
+                    const retryDelay =
+                        TARGET_RETRY_DELAYS_MS[Math.min(failureCount - 1, TARGET_RETRY_DELAYS_MS.length - 1)];
+                    targetRetryStates.set(target.id, { failureCount, retryAt: Date.now() + retryDelay });
+                    partialScanFailed = true;
+                }
+                await new Promise<void>((resolve) => setTimeout(resolve, TARGET_SCAN_STEP_DELAY_MS));
+            }
+        };
+        const workerCount = Math.min(TARGET_SCAN_CONCURRENCY, candidates.length);
+        await Promise.all(Array.from({ length: workerCount }, worker));
+        return partialScanFailed;
     };
     const scanTargets = async () => {
         if (scanning || resettingCapture || uiPorts.size === 0) return;
@@ -1294,6 +1346,9 @@ export default defineBackground(() => {
                 const target = liveTargets.get(targetId);
                 if (!target || !target.attached) occupiedTargetIds.delete(targetId);
             }
+            for (const targetId of targetRetryStates.keys()) {
+                if (!liveIds.has(targetId)) targetRetryStates.delete(targetId);
+            }
             for (const targetId of attachedTargets.keys()) {
                 if (!liveIds.has(targetId)) removeTarget(targetId);
             }
@@ -1303,17 +1358,11 @@ export default defineBackground(() => {
                 if (target.type === 'shared_worker') return 1;
                 return 2;
             };
-            const candidates = targets.filter(isWebSocketTargetCandidate).sort((left, right) => {
-                return targetPriority(left) - targetPriority(right);
-            });
-            for (const target of candidates) {
-                try {
-                    await withTimeout(inspectCandidate(target), 3000);
-                } catch {
-                    partialScanFailed = true;
-                }
-                await new Promise<void>((resolve) => setTimeout(resolve, TARGET_SCAN_STEP_DELAY_MS));
-            }
+            const candidates = targets
+                .filter(isWebSocketTargetCandidate)
+                .filter(shouldQueueTarget)
+                .sort((left, right) => targetPriority(left) - targetPriority(right));
+            partialScanFailed = await inspectCandidateQueue(candidates);
             // 先等待页面自动附加 Dedicated Worker，避免后续兜底直接抢占其调试目标。
             await new Promise<void>((resolve) => setTimeout(resolve, 100));
             await Promise.allSettled(pendingChildInspections);
@@ -1322,29 +1371,23 @@ export default defineBackground(() => {
             const refreshedTargets = await chrome.debugger.getTargets();
             const pageSession = [...attachedTargets.entries()].find(([, target]) => target.type === 'page');
             const pageDebuggee = pageSession ? debuggerTarget(pageSession[0]) : null;
-            for (const target of refreshedTargets.filter(
+            const fallbackWorkers = refreshedTargets.filter(
                 (item) =>
                     item.type === 'worker' &&
                     !item.attached &&
-                    !attachedTargets.has(item.id) &&
-                    !blockedTargetIds.has(item.id),
-            )) {
-                try {
-                    let ownerTarget: CaptureTarget | undefined;
-                    if (pageDebuggee) {
-                        const targetInfo = await sendDebuggerCommand(pageDebuggee, 'Target.getTargetInfo', {
-                            targetId: target.id,
-                        }).catch(() => null);
-                        ownerTarget = targetInfo?.targetInfo?.openerId
-                            ? attachedTargets.get(targetInfo.targetInfo.openerId)
-                            : undefined;
-                    }
-                    await withTimeout(inspectCandidate(target, ownerTarget?.url, ownerTarget?.tabId), 3000);
-                } catch {
-                    partialScanFailed = true;
-                }
-                await new Promise<void>((resolve) => setTimeout(resolve, TARGET_SCAN_STEP_DELAY_MS));
-            }
+                    shouldQueueTarget(item),
+            );
+            const fallbackFailed = await inspectCandidateQueue(fallbackWorkers, async (target) => {
+                if (!pageDebuggee) return {};
+                const targetInfo = await sendDebuggerCommand(pageDebuggee, 'Target.getTargetInfo', {
+                    targetId: target.id,
+                }).catch(() => null);
+                const ownerTarget = targetInfo?.targetInfo?.openerId
+                    ? attachedTargets.get(targetInfo.targetInfo.openerId)
+                    : undefined;
+                return { ownerPageUrl: ownerTarget?.url, ownerTabId: ownerTarget?.tabId };
+            });
+            partialScanFailed ||= fallbackFailed;
             if (partialScanFailed) {
                 pushDiagnostic('warning', '部分 WebSocket 目标扫描超时');
             }
@@ -1363,6 +1406,7 @@ export default defineBackground(() => {
         broadcast();
         blockedTargetIds.clear();
         occupiedTargetIds.clear();
+        targetRetryStates.clear();
         try {
             await refreshAttachedTargets();
         } catch (error: unknown) {
