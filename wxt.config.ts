@@ -6,7 +6,7 @@ export default defineConfig({
     modules: ['@wxt-dev/module-react'],
     manifest: {
         name: 'YCloud WebSocket 调试器',
-        version: '0.6.6',
+        version: '0.0.1',
         description: '实时捕获、检索与调试浏览器中的 WebSocket 连接和消息。',
         minimum_chrome_version: '125',
         permissions: ['debugger', 'tabs'],

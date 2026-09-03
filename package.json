@@ -1,6 +1,6 @@
 {
     "name": "ycloud-websocket-inspector",
-    "version": "0.6.6",
+    "version": "0.0.1",
     "private": true,
     "description": "捕获并调试页面、Web Worker 与 SharedWorker 中的 WebSocket 消息。",
     "type": "module",
