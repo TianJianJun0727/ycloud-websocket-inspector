@@ -39,7 +39,11 @@ export const displayUrl = (url: string, fallback = '未知 URL'): string => {
 export const displayDomain = (url: string, fallback = '未知域名'): string => {
     if (!url) return fallback;
     try {
-        return new URL(url).host;
+        const parsed = new URL(url);
+        if (parsed.host) return parsed.host;
+        // Blob Worker 的 URL 本身没有 host，但 origin 保留了所属页面域名。
+        if (parsed.origin && parsed.origin !== 'null') return new URL(parsed.origin).host || fallback;
+        return fallback;
     } catch {
         return url;
     }

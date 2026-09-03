@@ -8,6 +8,8 @@ import {
     resetStoredCapture,
 } from '../lib/frame-store.ts';
 import { buildFrameRecord } from '../lib/frame-utils.ts';
+import { reconcileRuntimeSockets } from '../lib/socket-discovery.ts';
+import { resolveWebSocketTargetType, type WorkerScope } from '../lib/target-type.ts';
 import type {
     CaptureDiagnostic,
     CaptureTarget,
@@ -34,6 +36,8 @@ interface DebuggerCommandResultMap {
     'Runtime.callFunctionOn': { result?: RuntimeRemoteObject };
     'Runtime.releaseObjectGroup': object;
     'Network.enable': object;
+    'Target.detachFromTarget': object;
+    'Target.setAutoAttach': object;
 }
 
 interface DebuggerEventParams {
@@ -48,23 +52,29 @@ interface DebuggerEventParams {
     };
 }
 
-interface WorkerScope {
-    scopeName?: string;
-    href?: string;
+interface AttachedTargetEvent {
+    sessionId: string;
+    targetInfo: {
+        targetId: string;
+        title: string;
+        type: string;
+        url: string;
+        openerId?: string;
+    };
 }
 
-/** 将 Chrome 调试目标归一化为页面、Dedicated Worker 或 SharedWorker。 */
-const resolveWebSocketTargetType = (
-    target: chrome.debugger.TargetInfo,
-    scope: WorkerScope | undefined,
-): WebSocketTargetType | null => {
-    const debuggerTargetType = String(target.type);
-    if (debuggerTargetType === 'shared_worker' || scope?.scopeName === 'SharedWorkerGlobalScope')
-        return 'shared_worker';
-    if (debuggerTargetType === 'worker' || scope?.scopeName === 'DedicatedWorkerGlobalScope') return 'worker';
-    if (debuggerTargetType === 'page') return 'page';
-    return null;
-};
+interface DetachedTargetEvent {
+    sessionId: string;
+    targetId?: string;
+}
+
+interface RuntimeExecutionContextCreatedEvent {
+    context: { id: number };
+}
+
+interface RuntimeExecutionContextDestroyedEvent {
+    executionContextId: number;
+}
 
 /** 提供缺少调试目标标题时的稳定展示名称。 */
 const targetTypeFallbackTitle = (targetType: WebSocketTargetType): string => {
@@ -73,11 +83,11 @@ const targetTypeFallbackTitle = (targetType: WebSocketTargetType): string => {
     return '页面';
 };
 
-/** 仅扫描普通网页及 Web Worker，排除浏览器内部页和其他扩展页面。 */
+/** 页面负责自动发现 Dedicated Worker，独立 Worker 在页面附加完成后兜底扫描。 */
 const isWebSocketTargetCandidate = (target: chrome.debugger.TargetInfo): boolean => {
     const targetType = String(target.type);
     if (targetType === 'page') return /^(https?|file):/.test(target.url || '');
-    return ['worker', 'shared_worker', 'other'].includes(targetType);
+    return ['shared_worker', 'other'].includes(targetType);
 };
 
 interface RuntimeSimulationResult {
@@ -105,7 +115,8 @@ export default defineBackground(() => {
     const { maxTotalBytes: MAX_TOTAL_BYTES } = FRAME_STORE_LIMITS;
     const FRAME_BATCH_SIZE = 64;
     const FRAME_BATCH_INTERVAL_MS = 70;
-    const TARGET_SCAN_INTERVAL_MS = 1000;
+    const TARGET_SCAN_INTERVAL_MS = 5000;
+    const TARGET_SCAN_STEP_DELAY_MS = 120;
     const DETACH_GRACE_MS = 5000;
     const TRANSIENT_DIAGNOSTIC_TTL_MS = 10000;
     // 以下集合只保存当前监听会话的运行态；业务页面及业务存储不会被修改。
@@ -113,11 +124,18 @@ export default defineBackground(() => {
     const attachedTargets = new Map<string, CaptureTarget>();
     const socketMaps = new Map<string, Map<string, SocketRecord>>();
     const blockedTargetIds = new Set<string>();
+    const occupiedTargetIds = new Set<string>();
     const pausedConnections = new Set<string>();
     const frameBuckets = new Map<string, FrameRecord[]>();
     const frameOrder: Array<{ id: number; key: string }> = [];
     const retainedFrameIds = new Set<number>();
     const connectionRecords = new Map<string, ConnectionRecord>();
+    const debuggerSessions = new Map<string, chrome.debugger.DebuggerSession>();
+    const rootSessionTargetIds = new Map<string, string>();
+    const sessionTargetIds = new Map<string, string>();
+    const childTargetParents = new Map<string, string>();
+    const targetExecutionContexts = new Map<string, Set<number>>();
+    const pendingChildInspections = new Set<Promise<void>>();
     const pendingSimulationSends = new Map<string, PendingSimulationSend[]>();
     const diagnostics: CaptureDiagnostic[] = [];
     // generation 用于丢弃上一个 Inspector 会话迟到的异步消息。
@@ -126,6 +144,7 @@ export default defineBackground(() => {
     let totalPayloadBytes = 0;
     let pauseNewConnections = false;
     let scanning = false;
+    let resettingCapture = false;
     let initialScanning = true;
     let scanTimer: ReturnType<typeof setInterval> | null = null;
     let detachTimer: ReturnType<typeof setTimeout> | null = null;
@@ -136,11 +155,22 @@ export default defineBackground(() => {
     let frameBatchTimer: ReturnType<typeof setTimeout> | null = null;
     let persistenceQueue: Promise<void> = Promise.resolve();
     let frameOrderHead = 0;
-    const debuggerTarget = (targetId: string): chrome.debugger.Debuggee => {
-        return { targetId };
+    /** 为根调试会话生成稳定键，区分同 URL 的多个浏览器标签页。 */
+    const rootSessionKey = (session: chrome.debugger.DebuggerSession): string => {
+        if (typeof session.tabId === 'number') return `tab:${session.tabId}`;
+        if (session.targetId) return `target:${session.targetId}`;
+        return '';
+    };
+    const debuggerTarget = (targetId: string): chrome.debugger.DebuggerSession => {
+        return debuggerSessions.get(targetId) || { targetId };
+    };
+    /** 将 chrome.debugger 事件来源还原为内部捕获目标。 */
+    const resolveEventTargetId = (source: chrome.debugger.DebuggerSession): string | undefined => {
+        if (source.sessionId) return sessionTargetIds.get(source.sessionId);
+        return rootSessionTargetIds.get(rootSessionKey(source)) || source.targetId;
     };
     const sendDebuggerCommand = <Method extends keyof DebuggerCommandResultMap>(
-        debuggee: chrome.debugger.Debuggee,
+        debuggee: chrome.debugger.DebuggerSession,
         method: Method,
         commandParams?: Record<string, unknown>,
     ): Promise<DebuggerCommandResultMap[Method]> =>
@@ -296,6 +326,9 @@ export default defineBackground(() => {
                 evictedFrameIds.push(...enforceFrameLimits(key));
             }
             nextFrameId = maximumId + 1;
+            const emptyConnectionKeys = [...connectionRecords.keys()].filter((key) => !frameBuckets.has(key));
+            for (const key of emptyConnectionKeys) connectionRecords.delete(key);
+            await Promise.all(emptyConnectionKeys.map((key) => clearStoredConnection(key, captureGeneration)));
             if (evictedFrameIds.length > 0) {
                 await persistFrameBatch({
                     frames: [],
@@ -373,49 +406,47 @@ export default defineBackground(() => {
         frameBuckets.delete(key);
         return removedIds;
     };
-    const resetCaptureSession = async () => {
+    /** 刷新 Inspector 时清空上一轮数据和调试会话，再从空列表重新发现连接。 */
+    const resetCaptureSession = async (): Promise<void> => {
+        resettingCapture = true;
+        if (scanTimer) clearInterval(scanTimer);
+        scanTimer = null;
+        while (scanning) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        }
+        // 等待旧扫描的写入全部结束，避免数据库清空后又被迟到任务写回旧连接。
+        await persistenceQueue;
         if (frameBatchTimer) clearTimeout(frameBatchTimer);
         frameBatchTimer = null;
         pendingFrames = [];
         pendingEvictedFrameIds = [];
+        await Promise.allSettled(pendingChildInspections);
+        await Promise.allSettled([...attachedTargets.keys()].map(safeDetach));
+        attachedTargets.clear();
+        socketMaps.clear();
+        debuggerSessions.clear();
+        rootSessionTargetIds.clear();
+        sessionTargetIds.clear();
+        childTargetParents.clear();
+        targetExecutionContexts.clear();
+        blockedTargetIds.clear();
+        occupiedTargetIds.clear();
+        pausedConnections.clear();
+        pendingSimulationSends.clear();
+        pauseNewConnections = false;
         frameBuckets.clear();
         frameOrder.length = 0;
         retainedFrameIds.clear();
+        connectionRecords.clear();
+        diagnostics.length = 0;
         frameOrderHead = 0;
         nextFrameId = 1;
         totalFrameCount = 0;
         totalPayloadBytes = 0;
-        connectionRecords.clear();
-        diagnostics.length = 0;
-        pausedConnections.clear();
-        pauseNewConnections = false;
         captureGeneration += 1;
-        const resetAt = Date.now();
-        const activeRecords: ConnectionRecord[] = [];
-        for (const [targetId, sockets] of socketMaps) {
-            const target = attachedTargets.get(targetId);
-            for (const [requestId, socket] of sockets) {
-                if (socket.status === 'closed') continue;
-                socket.createdAt = resetAt;
-                socket.closedAt = null;
-                const record = {
-                    key: targetId + '::' + requestId,
-                    targetId,
-                    requestId,
-                    targetType: target?.type || 'shared_worker',
-                    targetTitle: target?.title || targetTypeFallbackTitle(target?.type || 'shared_worker'),
-                    targetUrl: target?.url || '',
-                    url: socket.url || '',
-                    createdAt: resetAt,
-                    closedAt: null,
-                    status: socket.status || 'connecting',
-                };
-                connectionRecords.set(record.key, record);
-                activeRecords.push(record);
-            }
-        }
+        initialScanning = true;
         await resetStoredCapture(captureGeneration);
-        await persistConnections(activeRecords);
+        resettingCapture = false;
     };
     const flushFrameBatch = () => {
         if (frameBatchTimer) {
@@ -462,6 +493,16 @@ export default defineBackground(() => {
         const connectionKey = frameConnectionKey(record);
         record.connectionKey = connectionKey;
         const bucket = frameBuckets.get(connectionKey) || [];
+        const previousFrame = bucket.at(-1);
+        if (
+            previousFrame &&
+            previousFrame.direction === record.direction &&
+            previousFrame.timestamp === record.timestamp &&
+            previousFrame.opcode === record.opcode &&
+            previousFrame.payloadData === record.payloadData
+        ) {
+            return;
+        }
         if (!frameBuckets.has(connectionKey)) frameBuckets.set(connectionKey, bucket);
         bucket.push(record);
         frameOrder.push({ id: record.id, key: connectionKey });
@@ -625,16 +666,35 @@ export default defineBackground(() => {
         broadcast({ type: 'frame', generation: captureGeneration, frame: matchingFrame });
     };
     const safeDetach = async (targetId: string): Promise<void> => {
+        const session = debuggerSessions.get(targetId);
         try {
-            await chrome.debugger.detach(debuggerTarget(targetId));
+            if (session?.sessionId) {
+                const parentTargetId = childTargetParents.get(targetId);
+                const parentSession = parentTargetId ? debuggerSessions.get(parentTargetId) : undefined;
+                if (parentSession) {
+                    await sendDebuggerCommand(parentSession, 'Target.detachFromTarget', {
+                        sessionId: session.sessionId,
+                    });
+                }
+            } else {
+                await chrome.debugger.detach(session || { targetId });
+            }
         } catch {
             // Target may already be gone.
         }
     };
     const removeTarget = (targetId: string): void => {
+        for (const [childTargetId, parentTargetId] of childTargetParents) {
+            if (parentTargetId === targetId) removeTarget(childTargetId);
+        }
         const sockets = socketMaps.get(targetId);
         const closedAt = Date.now();
-        for (const requestId of sockets?.keys() || []) {
+        for (const [requestId] of sockets?.entries() || []) {
+            const key = targetId + '::' + requestId;
+            if (!frameBuckets.has(key)) {
+                removeRuntimeSocketPlaceholder(targetId, requestId);
+                continue;
+            }
             const record = connectionRecord(targetId, requestId);
             if (record?.status !== 'closed') {
                 upsertConnectionRecord(targetId, requestId, { status: 'closed', closedAt });
@@ -642,36 +702,61 @@ export default defineBackground(() => {
         }
         attachedTargets.delete(targetId);
         socketMaps.delete(targetId);
+        const debuggerSession = debuggerSessions.get(targetId);
+        const sessionId = debuggerSession?.sessionId;
+        if (sessionId) sessionTargetIds.delete(sessionId);
+        else if (debuggerSession) rootSessionTargetIds.delete(rootSessionKey(debuggerSession));
+        debuggerSessions.delete(targetId);
+        targetExecutionContexts.delete(targetId);
+        childTargetParents.delete(targetId);
         for (const key of pausedConnections) {
             if (key.startsWith(targetId + '::')) pausedConnections.delete(key);
         }
     };
     // Inspector 晚于 WebSocket 建立时，尝试从 Runtime 对象补全连接 URL。
-    const discoverExistingWebSockets = async (debuggee: chrome.debugger.Debuggee): Promise<DiscoveredSocket[]> => {
-        const objectGroup = 'shared-worker-ws-inspector-discovery';
-        try {
-            const prototypeResult = await sendDebuggerCommand(debuggee, 'Runtime.evaluate', {
-                expression: 'WebSocket.prototype',
-                objectGroup,
-            });
-            const prototypeObjectId = prototypeResult?.result?.objectId;
-            if (!prototypeObjectId) return [];
-            const instancesResult = await sendDebuggerCommand(debuggee, 'Runtime.queryObjects', {
-                prototypeObjectId,
-                objectGroup,
-            });
-            const instancesObjectId = instancesResult?.objects?.objectId;
-            if (!instancesObjectId) return [];
-            const valuesResult = await sendDebuggerCommand(debuggee, 'Runtime.callFunctionOn', {
-                objectId: instancesObjectId,
-                functionDeclaration:
-                    'function () { globalThis.__ycloudWebSocketInspectorSockets = this; return this.map(function (socket) { return { url: socket.url, readyState: socket.readyState, protocol: socket.protocol }; }); }',
-                returnByValue: true,
-            });
-            return Array.isArray(valuesResult?.result?.value) ? (valuesResult.result.value as DiscoveredSocket[]) : [];
-        } catch {
-            return [];
-        }
+    const discoverExistingWebSockets = async (
+        targetId: string,
+        debuggee: chrome.debugger.DebuggerSession,
+    ): Promise<DiscoveredSocket[] | null> => {
+        const contextIds = [...(targetExecutionContexts.get(targetId) || [])];
+        const contexts: Array<number | undefined> = contextIds.length > 0 ? contextIds : [undefined];
+        const results = await Promise.all(
+            contexts.map(async (contextId): Promise<DiscoveredSocket[] | null> => {
+                const objectGroup = `shared-worker-ws-inspector-discovery-${contextId ?? 'default'}`;
+                try {
+                    const prototypeResult = await sendDebuggerCommand(debuggee, 'Runtime.evaluate', {
+                        expression: 'typeof WebSocket === "function" ? WebSocket.prototype : null',
+                        objectGroup,
+                        ...(typeof contextId === 'number' ? { contextId } : {}),
+                    });
+                    const prototypeObjectId = prototypeResult?.result?.objectId;
+                    if (!prototypeObjectId) return [];
+                    const instancesResult = await sendDebuggerCommand(debuggee, 'Runtime.queryObjects', {
+                        prototypeObjectId,
+                        objectGroup,
+                    });
+                    const instancesObjectId = instancesResult?.objects?.objectId;
+                    if (!instancesObjectId) return [];
+                    const valuesResult = await sendDebuggerCommand(debuggee, 'Runtime.callFunctionOn', {
+                        objectId: instancesObjectId,
+                        functionDeclaration:
+                            'function () { globalThis.__ycloudWebSocketInspectorSockets = this; return this.map(function (socket) { return { url: socket.url, readyState: socket.readyState, protocol: socket.protocol }; }); }',
+                        returnByValue: true,
+                    });
+                    return Array.isArray(valuesResult?.result?.value)
+                        ? (valuesResult.result.value as DiscoveredSocket[])
+                        : [];
+                } catch {
+                    return null;
+                } finally {
+                    await sendDebuggerCommand(debuggee, 'Runtime.releaseObjectGroup', { objectGroup }).catch(
+                        () => undefined,
+                    );
+                }
+            }),
+        );
+        const successfulResults = results.filter((result): result is DiscoveredSocket[] => result !== null);
+        return successfulResults.length > 0 ? successfulResults.flat() : null;
     };
 
     /** 在目标运行时中定位唯一连接，并执行真实发送或本地事件模拟。 */
@@ -741,68 +826,324 @@ export default defineBackground(() => {
         const sockets = socketMaps.get(targetId);
         const socket = sockets?.get(requestId);
         if (!target || !sockets || !socket || socket.url) return;
-        const unknownSockets = [...sockets.values()].filter((item) => !item.url);
-        const knownUrls = new Set([...sockets.values()].map((item) => item.url).filter(Boolean));
-        const candidates = (target.discoveredSockets || []).filter(
-            (item) => item.url && item.readyState <= 1 && !knownUrls.has(item.url),
-        );
+        const unknownSockets = [...sockets.values()].filter((item) => item.status !== 'closed' && !item.url);
+        const knownUrlCounts = new Map<string, number>();
+        for (const item of sockets.values()) {
+            if (item.status === 'closed' || !item.url) continue;
+            knownUrlCounts.set(item.url, (knownUrlCounts.get(item.url) || 0) + 1);
+        }
+        const discoveredUrlCounts = new Map<string, number>();
+        const candidates = (target.discoveredSockets || []).filter((item) => {
+            if (!item.url || item.readyState > 1) return false;
+            const discoveredCount = (discoveredUrlCounts.get(item.url) || 0) + 1;
+            discoveredUrlCounts.set(item.url, discoveredCount);
+            return discoveredCount > (knownUrlCounts.get(item.url) || 0);
+        });
         if (unknownSockets.length === 1 && candidates.length === 1) {
             socket.url = candidates[0]!.url;
-            socket.urlSource = 'runtime';
         }
     };
+
+    /** 删除仅用于运行时发现的占位连接，不将其误报为已关闭的真实连接。 */
+    const removeRuntimeSocketPlaceholder = (targetId: string, requestId: string): void => {
+        const key = targetId + '::' + requestId;
+        socketMaps.get(targetId)?.delete(requestId);
+        connectionRecords.delete(key);
+        pausedConnections.delete(key);
+        queuePersistence(() => clearStoredConnection(key, captureGeneration));
+    };
+
+    /** 将运行时发现结果同步为连接记录，使 Inspector 启动前已建立的连接也能显示。 */
+    const synchronizeDiscoveredSockets = (targetId: string, discoveredSockets: DiscoveredSocket[]): void => {
+        const target = attachedTargets.get(targetId);
+        const sockets = socketMaps.get(targetId);
+        if (!target || !sockets) return;
+        target.discoveredSockets = discoveredSockets;
+        const discoveredCounts = new Map<string, number>();
+        for (const socket of discoveredSockets) {
+            if (!socket.url || socket.readyState > 1) continue;
+            discoveredCounts.set(socket.url, (discoveredCounts.get(socket.url) || 0) + 1);
+        }
+        const activeByUrl = new Map<string, Array<[string, SocketRecord]>>();
+        for (const entry of sockets.entries()) {
+            const [, socket] = entry;
+            if (!socket.url || socket.status === 'closed') continue;
+            const matches = activeByUrl.get(socket.url) || [];
+            matches.push(entry);
+            activeByUrl.set(socket.url, matches);
+        }
+        for (const [url, activeSockets] of activeByUrl) {
+            let excess = activeSockets.length - (discoveredCounts.get(url) || 0);
+            if (excess <= 0) continue;
+            const candidates = [...activeSockets].sort((left, right) => {
+                const runtimeDifference = Number(Boolean(right[1].urlSource)) - Number(Boolean(left[1].urlSource));
+                if (runtimeDifference !== 0) return runtimeDifference;
+                return (left[1].createdAt || 0) - (right[1].createdAt || 0);
+            });
+            for (const [requestId, socket] of candidates) {
+                if (excess <= 0) break;
+                const key = targetId + '::' + requestId;
+                if (socket.urlSource === 'runtime' || !frameBuckets.has(key)) {
+                    removeRuntimeSocketPlaceholder(targetId, requestId);
+                } else {
+                    socket.status = 'closed';
+                    socket.closedAt = Date.now();
+                    pausedConnections.delete(key);
+                    upsertConnectionRecord(targetId, requestId, {
+                        status: 'closed',
+                        closedAt: socket.closedAt,
+                    });
+                }
+                excess -= 1;
+            }
+        }
+        const runtimeSockets = reconcileRuntimeSockets(
+            sockets.entries(),
+            discoveredSockets,
+            () => `runtime:${crypto.randomUUID()}`,
+        );
+        const retainedRequestIds = new Set(runtimeSockets.map(({ requestId }) => requestId));
+        for (const [requestId, socket] of sockets) {
+            if (socket.urlSource === 'runtime' && !retainedRequestIds.has(requestId)) {
+                removeRuntimeSocketPlaceholder(targetId, requestId);
+            }
+        }
+        for (const { requestId, socket } of runtimeSockets) {
+            sockets.set(requestId, socket);
+            if (pauseNewConnections) pausedConnections.add(targetId + '::' + requestId);
+            upsertConnectionRecord(targetId, requestId, {
+                url: socket.url,
+                createdAt: socket.createdAt,
+                closedAt: null,
+                status: socket.status,
+            });
+        }
+        // Runtime 发现与 CDP 事件可能并发：为空 URL 的真实 requestId 接管一个占位连接，避免拆成两行。
+        const unresolvedSockets = [...sockets.entries()].filter(
+            ([, socket]) => socket.status !== 'closed' && !socket.url && socket.urlSource !== 'runtime',
+        );
+        for (const [requestId, unresolvedSocket] of unresolvedSockets) {
+            const adoptedSocket = adoptRuntimeSocket(targetId, requestId);
+            if (!adoptedSocket) break;
+            const resolvedSocket: SocketRecord = {
+                ...adoptedSocket,
+                createdAt: unresolvedSocket.createdAt || adoptedSocket.createdAt,
+                closedAt: unresolvedSocket.closedAt,
+                status: unresolvedSocket.status,
+            };
+            sockets.set(requestId, resolvedSocket);
+            upsertConnectionRecord(targetId, requestId, {
+                url: resolvedSocket.url,
+                createdAt: resolvedSocket.createdAt,
+                closedAt: resolvedSocket.closedAt,
+                status: resolvedSocket.status,
+            });
+        }
+    };
+
+    /** 用真实 CDP requestId 接管一个运行时占位连接，保持连接数量稳定。 */
+    const adoptRuntimeSocket = (targetId: string, requestId: string, url = ''): SocketRecord | null => {
+        const sockets = socketMaps.get(targetId);
+        if (!sockets) return null;
+        const placeholder = [...sockets.entries()].find(
+            ([, socket]) =>
+                socket.urlSource === 'runtime' && socket.status !== 'closed' && (!url || socket.url === url),
+        );
+        if (!placeholder) return null;
+        const [placeholderRequestId, placeholderSocket] = placeholder;
+        const placeholderKey = targetId + '::' + placeholderRequestId;
+        const nextKey = targetId + '::' + requestId;
+        const wasPaused = pausedConnections.delete(placeholderKey);
+        removeRuntimeSocketPlaceholder(targetId, placeholderRequestId);
+        if (wasPaused) pausedConnections.add(nextKey);
+        const adoptedSocket = { ...placeholderSocket };
+        delete adoptedSocket.urlSource;
+        return adoptedSocket;
+    };
+
+    /** 读取 Worker 全局作用域，Chrome 将 SharedWorker 暴露为通用 worker 时据此纠正类型。 */
+    const inspectRuntimeScope = async (debuggee: chrome.debugger.DebuggerSession): Promise<WorkerScope | undefined> => {
+        const result = await sendDebuggerCommand(debuggee, 'Runtime.evaluate', {
+            expression: `(() => {
+                    const scopeName = self.constructor && self.constructor.name || '';
+                    const scopeTag = Object.prototype.toString.call(self);
+                    const isSharedWorker =
+                        scopeName === 'SharedWorkerGlobalScope' ||
+                        scopeTag === '[object SharedWorkerGlobalScope]' ||
+                        (typeof SharedWorkerGlobalScope !== 'undefined' && self instanceof SharedWorkerGlobalScope) ||
+                        (!('document' in self) && 'onconnect' in self);
+                    const isDedicatedWorker =
+                        scopeName === 'DedicatedWorkerGlobalScope' ||
+                        scopeTag === '[object DedicatedWorkerGlobalScope]' ||
+                        (typeof DedicatedWorkerGlobalScope !== 'undefined' && self instanceof DedicatedWorkerGlobalScope);
+                    return {
+                        scopeName,
+                        scopeType: isSharedWorker ? 'shared_worker' : isDedicatedWorker ? 'worker' : '',
+                        href: self.location && self.location.href || '',
+                    };
+                })()`,
+            returnByValue: true,
+        });
+        return result?.result?.value as WorkerScope | undefined;
+    };
+
+    /** 初始化已经附加的页面或 Worker 调试会话，并注册统一捕获目标。 */
+    const initializeAttachedTarget = async (
+        targetId: string,
+        debuggerTargetType: string,
+        title: string,
+        url: string,
+        debuggee: chrome.debugger.DebuggerSession,
+        ownerPageUrl?: string,
+    ): Promise<WebSocketTargetType | null> => {
+        await sendDebuggerCommand(debuggee, 'Runtime.enable');
+        const scope = await inspectRuntimeScope(debuggee);
+        const targetType = resolveWebSocketTargetType(debuggerTargetType, scope);
+        if (!targetType) return null;
+        await sendDebuggerCommand(debuggee, 'Network.enable');
+        const targetRecord: CaptureTarget = {
+            id: targetId,
+            type: targetType,
+            title: title || targetTypeFallbackTitle(targetType),
+            // Dedicated Worker 记录所属页面，便于多个页面存在同源 Worker 时识别来源。
+            url: targetType === 'worker' && ownerPageUrl ? ownerPageUrl : scope?.href || url || '',
+            attachedAt: Date.now(),
+            discoveredSockets: [],
+        };
+        attachedTargets.set(targetId, targetRecord);
+        socketMaps.set(targetId, new Map());
+        const discoveredSockets = await discoverExistingWebSockets(targetId, debuggee);
+        if (discoveredSockets) synchronizeDiscoveredSockets(targetId, discoveredSockets);
+        removeDiagnostics(
+            (diagnostic) =>
+                diagnostic.level === 'error' && diagnostic.source === 'capture' && diagnostic.targetId === targetId,
+        );
+        pushDiagnostic('info', `已连接${targetTypeFallbackTitle(targetType)}调试目标`, targetId);
+        broadcast();
+        return targetType;
+    };
+
+    /** 手动重新扫描时校准已附加目标的类型、运行地址和活动连接数量。 */
+    const refreshAttachedTargets = async (): Promise<void> => {
+        await Promise.allSettled(
+            [...attachedTargets.entries()].map(async ([targetId, target]) => {
+                const debuggee = debuggerTarget(targetId);
+                const scope = await inspectRuntimeScope(debuggee);
+                const runtimeType = resolveWebSocketTargetType('', scope);
+                if (runtimeType && runtimeType !== target.type) {
+                    target.type = runtimeType;
+                    target.title = targetTypeFallbackTitle(runtimeType);
+                    if (runtimeType === 'shared_worker' && scope?.href) target.url = scope.href;
+                    for (const requestId of socketMaps.get(targetId)?.keys() || []) {
+                        upsertConnectionRecord(targetId, requestId);
+                    }
+                }
+                const discoveredSockets = await discoverExistingWebSockets(targetId, debuggee);
+                if (discoveredSockets) synchronizeDiscoveredSockets(targetId, discoveredSockets);
+            }),
+        );
+        broadcast();
+    };
+
+    /** 将页面自动附加的 Dedicated Worker 子会话接入现有捕获模型。 */
+    const inspectAttachedChild = async (
+        rootSession: chrome.debugger.DebuggerSession,
+        event: AttachedTargetEvent,
+    ): Promise<void> => {
+        const rootTargetId = resolveEventTargetId(rootSession);
+        const { targetId, title, type, url } = event.targetInfo;
+        if (!rootTargetId) return;
+        if (attachedTargets.has(targetId)) {
+            await sendDebuggerCommand(debuggerTarget(rootTargetId), 'Target.detachFromTarget', {
+                sessionId: event.sessionId,
+            }).catch(() => undefined);
+            return;
+        }
+        if (type !== 'worker') {
+            await sendDebuggerCommand({ targetId: rootTargetId }, 'Target.detachFromTarget', {
+                sessionId: event.sessionId,
+            }).catch(() => undefined);
+            return;
+        }
+        const parentSession = debuggerTarget(rootTargetId);
+        const childSession: chrome.debugger.DebuggerSession = {
+            ...(typeof parentSession.tabId === 'number'
+                ? { tabId: parentSession.tabId }
+                : { targetId: parentSession.targetId || rootTargetId }),
+            sessionId: event.sessionId,
+        };
+        debuggerSessions.set(targetId, childSession);
+        sessionTargetIds.set(event.sessionId, targetId);
+        childTargetParents.set(targetId, rootTargetId);
+        try {
+            const targetType = await initializeAttachedTarget(
+                targetId,
+                type,
+                title,
+                url,
+                childSession,
+                attachedTargets.get(event.targetInfo.openerId || rootTargetId)?.url ||
+                    attachedTargets.get(rootTargetId)?.url,
+            );
+            if (!targetType) {
+                await safeDetach(targetId);
+                removeTarget(targetId);
+            }
+        } catch (error) {
+            await safeDetach(targetId);
+            removeTarget(targetId);
+            pushDiagnostic('error', error instanceof Error ? error.message : '连接 Web Worker 调试目标失败', targetId);
+            broadcast();
+        }
+    };
+
     const inspectCandidate = async (target: chrome.debugger.TargetInfo): Promise<void> => {
         if (
             attachedTargets.has(target.id) ||
             blockedTargetIds.has(target.id) ||
+            occupiedTargetIds.has(target.id) ||
             target.url?.startsWith(chrome.runtime.getURL(''))
         ) {
             return;
         }
         if (target.attached) {
-            blockedTargetIds.add(target.id);
+            occupiedTargetIds.add(target.id);
             pushDiagnostic('warning', '目标已被其他 DevTools 或调试器占用', target.id);
             return;
         }
-        const debuggee = debuggerTarget(target.id);
+        const debuggee: chrome.debugger.DebuggerSession =
+            target.type === 'page' && typeof target.tabId === 'number'
+                ? { tabId: target.tabId }
+                : { targetId: target.id };
         try {
             await chrome.debugger.attach(debuggee, '1.3');
-            await sendDebuggerCommand(debuggee, 'Runtime.enable');
-            const result = await sendDebuggerCommand(debuggee, 'Runtime.evaluate', {
-                expression:
-                    "(() => ({ scopeName: self.constructor && self.constructor.name || '', href: self.location && self.location.href || '' }))()",
-                returnByValue: true,
-            });
-            const scope = result?.result?.value as WorkerScope | undefined;
-            const targetType = resolveWebSocketTargetType(target, scope);
+            debuggerSessions.set(target.id, debuggee);
+            rootSessionTargetIds.set(rootSessionKey(debuggee), target.id);
+            const targetType = await initializeAttachedTarget(
+                target.id,
+                String(target.type),
+                target.title || '',
+                target.url || '',
+                debuggee,
+            );
             if (!targetType) {
                 blockedTargetIds.add(target.id);
                 await safeDetach(target.id);
+                debuggerSessions.delete(target.id);
                 return;
             }
-            await sendDebuggerCommand(debuggee, 'Network.enable');
-            const targetRecord: CaptureTarget = {
-                id: target.id,
-                type: targetType,
-                title: target.title || targetTypeFallbackTitle(targetType),
-                url: scope?.href || target.url || '',
-                attachedAt: Date.now(),
-                discoveredSockets: [],
-            };
-            attachedTargets.set(target.id, targetRecord);
-            socketMaps.set(target.id, new Map());
-            targetRecord.discoveredSockets = await discoverExistingWebSockets(debuggee);
-            removeDiagnostics(
-                (diagnostic) =>
-                    diagnostic.level === 'error' &&
-                    diagnostic.source === 'capture' &&
-                    diagnostic.targetId === target.id,
-            );
-            pushDiagnostic('info', `已连接${targetTypeFallbackTitle(targetType)}调试目标`, target.id);
-            broadcast();
+            if (targetType === 'page') {
+                await sendDebuggerCommand(debuggee, 'Target.setAutoAttach', {
+                    autoAttach: true,
+                    filter: [{ type: 'worker' }, { exclude: true }],
+                    flatten: true,
+                    waitForDebuggerOnStart: false,
+                });
+            }
         } catch (error) {
             blockedTargetIds.add(target.id);
             await safeDetach(target.id);
+            removeTarget(target.id);
             pushDiagnostic('error', error?.message || '连接 WebSocket 调试目标失败', target.id);
             broadcast();
         }
@@ -816,7 +1157,7 @@ export default defineBackground(() => {
         ]);
     };
     const scanTargets = async () => {
-        if (scanning || uiPorts.size === 0) return;
+        if (scanning || resettingCapture || uiPorts.size === 0) return;
         scanning = true;
         broadcast();
         try {
@@ -825,18 +1166,42 @@ export default defineBackground(() => {
                 (diagnostic) =>
                     diagnostic.level === 'error' && diagnostic.source === 'capture' && diagnostic.targetId === '',
             );
-            const liveIds = new Set(targets.map((target) => target.id));
+            const liveTargets = new Map(targets.map((target) => [target.id, target]));
+            const liveIds = new Set(liveTargets.keys());
             for (const targetId of blockedTargetIds) {
                 if (!liveIds.has(targetId)) blockedTargetIds.delete(targetId);
+            }
+            for (const targetId of occupiedTargetIds) {
+                const target = liveTargets.get(targetId);
+                if (!target || !target.attached) occupiedTargetIds.delete(targetId);
             }
             for (const targetId of attachedTargets.keys()) {
                 if (!liveIds.has(targetId)) removeTarget(targetId);
             }
-            const candidates = targets.filter(isWebSocketTargetCandidate);
-            const results = await Promise.allSettled(
-                candidates.map((target) => withTimeout(inspectCandidate(target), 3000)),
-            );
-            if (results.some((result) => result.status === 'rejected')) {
+            let partialScanFailed = false;
+            for (const target of targets.filter(isWebSocketTargetCandidate)) {
+                try {
+                    await withTimeout(inspectCandidate(target), 3000);
+                } catch {
+                    partialScanFailed = true;
+                }
+                await new Promise<void>((resolve) => setTimeout(resolve, TARGET_SCAN_STEP_DELAY_MS));
+            }
+            // setAutoAttach 的事件异步到达；等待子会话注册后再兜底，避免双路径争抢同一 Worker。
+            await new Promise<void>((resolve) => setTimeout(resolve, 50));
+            await Promise.allSettled(pendingChildInspections);
+            const refreshedTargets = await chrome.debugger.getTargets();
+            for (const target of refreshedTargets.filter(
+                (item) => item.type === 'worker' && !item.attached && !attachedTargets.has(item.id),
+            )) {
+                try {
+                    await withTimeout(inspectCandidate(target), 3000);
+                } catch {
+                    partialScanFailed = true;
+                }
+                await new Promise<void>((resolve) => setTimeout(resolve, TARGET_SCAN_STEP_DELAY_MS));
+            }
+            if (partialScanFailed) {
                 pushDiagnostic('warning', '部分 WebSocket 目标扫描超时');
             }
         } catch (error) {
@@ -875,31 +1240,66 @@ export default defineBackground(() => {
         }, DETACH_GRACE_MS);
     };
     chrome.debugger.onEvent.addListener((source, method, params) => {
-        const targetId = source.targetId;
+        // 重置期间只负责主动拆除旧会话，忽略旧目标迟到的事件。
+        if (resettingCapture) return;
+        if (method === 'Target.attachedToTarget') {
+            const inspection = inspectAttachedChild(source, (params ?? {}) as AttachedTargetEvent);
+            pendingChildInspections.add(inspection);
+            void inspection.finally(() => pendingChildInspections.delete(inspection));
+            return;
+        }
+        if (method === 'Target.detachedFromTarget') {
+            const event = (params ?? {}) as DetachedTargetEvent;
+            const childTargetId = event.targetId || sessionTargetIds.get(event.sessionId);
+            if (childTargetId) {
+                removeTarget(childTargetId);
+                broadcast();
+            }
+            return;
+        }
+        const targetId = resolveEventTargetId(source);
         if (!targetId) return;
+        if (method === 'Runtime.executionContextCreated') {
+            const event = (params ?? {}) as RuntimeExecutionContextCreatedEvent;
+            if (!Number.isFinite(event.context?.id)) return;
+            const contexts = targetExecutionContexts.get(targetId) || new Set<number>();
+            contexts.add(event.context.id);
+            targetExecutionContexts.set(targetId, contexts);
+            return;
+        }
+        if (method === 'Runtime.executionContextDestroyed') {
+            const event = (params ?? {}) as RuntimeExecutionContextDestroyedEvent;
+            targetExecutionContexts.get(targetId)?.delete(event.executionContextId);
+            return;
+        }
+        if (method === 'Runtime.executionContextsCleared') {
+            targetExecutionContexts.delete(targetId);
+            return;
+        }
         const eventParams = (params ?? {}) as DebuggerEventParams;
         const target = attachedTargets.get(targetId);
         if (!target) return;
         const sockets = socketMaps.get(targetId);
         if (method === 'Network.webSocketCreated') {
+            const adoptedSocket = adoptRuntimeSocket(targetId, eventParams.requestId, eventParams.url || '');
             sockets?.set(eventParams.requestId, {
-                url: eventParams.url || '',
-                createdAt: Date.now(),
+                url: eventParams.url || adoptedSocket?.url || '',
+                createdAt: adoptedSocket?.createdAt || Date.now(),
                 closedAt: null,
                 status: 'connecting',
             });
             if (pauseNewConnections) pausedConnections.add(targetId + '::' + eventParams.requestId);
             upsertConnectionRecord(targetId, eventParams.requestId, {
-                url: eventParams.url || '',
-                createdAt: Date.now(),
+                url: eventParams.url || adoptedSocket?.url || '',
+                createdAt: adoptedSocket?.createdAt || Date.now(),
                 closedAt: null,
                 status: 'connecting',
             });
             // 新连接创建后刷新运行时引用，后续模拟操作无需再次扫描堆对象。
-            void discoverExistingWebSockets(debuggerTarget(targetId)).then((discoveredSockets) => {
+            void discoverExistingWebSockets(targetId, debuggerTarget(targetId)).then((discoveredSockets) => {
                 const currentTarget = attachedTargets.get(targetId);
-                if (!currentTarget) return;
-                currentTarget.discoveredSockets = discoveredSockets;
+                if (!currentTarget || !discoveredSockets) return;
+                synchronizeDiscoveredSockets(targetId, discoveredSockets);
                 assignDiscoveredSocketUrl(targetId, eventParams.requestId);
                 broadcast();
             });
@@ -942,7 +1342,7 @@ export default defineBackground(() => {
         );
         let socket = sockets?.get(eventParams.requestId);
         if (!socket && sockets) {
-            socket = {
+            socket = adoptRuntimeSocket(targetId, eventParams.requestId) || {
                 url: '',
                 createdAt: null,
                 closedAt: null,
@@ -989,9 +1389,12 @@ export default defineBackground(() => {
         appendFrame(frame);
     });
     chrome.debugger.onDetach.addListener((source, reason) => {
-        if (!source.targetId || !attachedTargets.has(source.targetId)) return;
-        removeTarget(source.targetId);
-        pushDiagnostic('warning', '调试目标已断开: ' + reason, source.targetId);
+        // resetCaptureSession 会统一清空旧目标，不允许 detach 回调重新写入旧连接。
+        if (resettingCapture) return;
+        const targetId = resolveEventTargetId(source);
+        if (!targetId || !attachedTargets.has(targetId)) return;
+        removeTarget(targetId);
+        pushDiagnostic('warning', '调试目标已断开: ' + reason, targetId);
         broadcast();
     });
     chrome.runtime.onConnect.addListener((port) => {
@@ -1008,12 +1411,13 @@ export default defineBackground(() => {
             try {
                 await resetCaptureSession();
             } catch (error) {
-                pushDiagnostic('error', error?.message || 'IndexedDB 重置失败', '', 'storage');
+                resettingCapture = false;
+                pushDiagnostic('error', error?.message || '重置捕获数据失败', '', 'storage');
             }
             if (disconnected) return;
             uiPorts.add(port);
             startScanning();
-            port.postMessage(serializeState());
+            port.postMessage(serializeState(true));
         })();
         port.onMessage.addListener((message: unknown) => {
             const command = message as InspectorCommand;
@@ -1069,7 +1473,8 @@ export default defineBackground(() => {
                 broadcast();
             } else if (command.type === 'rescan') {
                 blockedTargetIds.clear();
-                scanTargets();
+                occupiedTargetIds.clear();
+                void refreshAttachedTargets().then(scanTargets);
             } else if (command.type === 'simulate') {
                 registerSimulationSend(command);
                 void withTimeout(

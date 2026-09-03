@@ -108,7 +108,7 @@ export const ConnectionSidebar = ({
                                         {targetTypeLabel(connection.targetType)}
                                     </span>
                                     <span>
-                                        {connection.targetType === 'page'
+                                        {connection.targetType === 'page' || connection.targetType === 'worker'
                                             ? displayDomain(connection.targetUrl)
                                             : displayUrl(connection.targetUrl, '未知运行环境')}
                                     </span>
