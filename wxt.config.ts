@@ -7,7 +7,7 @@ export default defineConfig({
     manifest: {
         name: 'YCloud WebSocket 调试器',
         version: '0.6.6',
-        description: '捕获并调试页面、Web Worker 与 SharedWorker 中的 WebSocket 消息。',
+        description: '实时捕获、检索与调试浏览器中的 WebSocket 连接和消息。',
         minimum_chrome_version: '125',
         permissions: ['debugger', 'tabs'],
         action: {

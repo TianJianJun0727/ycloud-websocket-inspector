@@ -71,7 +71,7 @@ export const InspectorHeader = ({
                 </span>
                 <div>
                     <h1>YCloud WebSocket 调试器</h1>
-                    <p>捕获并调试页面、Web Worker 与 SharedWorker 中的 WebSocket 消息</p>
+                    <p>实时捕获、检索与调试浏览器中的 WebSocket 连接和消息</p>
                 </div>
             </div>
             <div className="header-actions">
