@@ -18,8 +18,10 @@ interface FrameDetailProps {
 /** 生成详情面板所需的固定元数据。 */
 const getMetadata = (frame: FrameRecord, connection: ConnectionRecord | undefined): Array<[string, string]> => [
     ['时间', formatClock(frame.receivedAt)],
-    ...(connection && (connection.targetType === 'page' || connection.targetType === 'worker')
-        ? ([['Tab ID', String(connection.tabId ?? '未知')]] as Array<[string, string]>)
+    ...(connection &&
+    (connection.targetType === 'page' || connection.targetType === 'worker') &&
+    typeof connection.tabId === 'number'
+        ? ([['Tab ID', String(connection.tabId)]] as Array<[string, string]>)
         : []),
     ['方向', frame.direction === 'received' ? '↓ 接收' : '↑ 发送'],
     ...(frame.simulation

@@ -3,6 +3,7 @@ import type { DiscoveredSocket, SocketRecord } from '../types/capture';
 export interface IdentifiedSocket {
     requestId: string;
     socket: SocketRecord;
+    runtimeId?: string;
 }
 
 /** 将运行时 readyState 转换为连接列表使用的状态。 */
@@ -47,8 +48,10 @@ export const reconcileRuntimeSockets = (
         const reusable = runtimeSockets.get(url) || [];
         for (let index = 0; index < requiredCount; index += 1) {
             const previous = reusable[index];
+            const runtimeId = discovered[index]?.runtimeId;
             result.push({
-                requestId: previous?.requestId || createRequestId(),
+                requestId: previous?.requestId || (runtimeId ? `runtime:${runtimeId}` : createRequestId()),
+                runtimeId,
                 socket: {
                     url,
                     createdAt: previous?.socket.createdAt || now,

@@ -29,7 +29,7 @@ import {
     DEFAULT_CONNECTION_LIST_FILTERS,
     filterConnections,
 } from './connection-list-filter';
-import { parseConnectionListSort, sortConnections } from './connection-list-sort';
+import { parseConnectionGroup, parseConnectionListSort, sortConnections } from './connection-list-sort';
 import { FrameDetail } from './components/FrameDetail';
 import { FrameToolbar } from './components/FrameToolbar';
 import { InspectorHeader } from './components/InspectorHeader';
@@ -136,6 +136,9 @@ export const App = () => {
     const [diagnosticTick, setDiagnosticTick] = useState(0);
     const [selectedConnection, setSelectedConnection] = useState<string | null>(null);
     const [connectionFilters, setConnectionFilters] = useState(DEFAULT_CONNECTION_LIST_FILTERS);
+    const [connectionGroup, setConnectionGroup] = useState(() =>
+        parseConnectionGroup(localStorage.getItem('ycloud-ws-connection-group-v1')),
+    );
     const [connectionSort, setConnectionSort] = useState(() =>
         parseConnectionListSort(localStorage.getItem('ycloud-ws-connection-sort-v2')),
     );
@@ -239,6 +242,10 @@ export const App = () => {
     useEffect(() => {
         localStorage.setItem('ycloud-ws-connection-sort-v2', JSON.stringify(connectionSort));
     }, [connectionSort]);
+
+    useEffect(() => {
+        localStorage.setItem('ycloud-ws-connection-group-v1', connectionGroup);
+    }, [connectionGroup]);
 
     useEffect(() => {
         const saved = localStorage.getItem('ycloud-ws-theme');
@@ -489,11 +496,13 @@ export const App = () => {
                             domains={connectionDomains}
                             filteredConnections={filteredConnections}
                             filters={connectionFilters}
+                            group={connectionGroup}
                             sort={connectionSort}
                             paused={paused}
                             selectedConnection={selectedConnection}
                             totalFrames={totalFrames}
                             onFiltersChange={setConnectionFilters}
+                            onGroupChange={setConnectionGroup}
                             onSortChange={setConnectionSort}
                             onSelect={selectConnection}
                             onToggleAll={() => send({ type: 'set-all-connections-paused', paused: !paused })}

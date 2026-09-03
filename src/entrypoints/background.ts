@@ -34,7 +34,9 @@ interface DebuggerCommandResultMap {
     'Runtime.evaluate': { result?: RuntimeRemoteObject };
     'Runtime.queryObjects': { objects?: RuntimeRemoteObject };
     'Runtime.callFunctionOn': { result?: RuntimeRemoteObject };
+    'Runtime.addBinding': object;
     'Runtime.releaseObjectGroup': object;
+    'Runtime.runIfWaitingForDebugger': object;
     'Network.enable': object;
     'Target.detachFromTarget': object;
     'Target.setAutoAttach': object;
@@ -74,6 +76,19 @@ interface RuntimeExecutionContextCreatedEvent {
 
 interface RuntimeExecutionContextDestroyedEvent {
     executionContextId: number;
+}
+
+interface RuntimeBindingCalledEvent {
+    name: string;
+    payload: string;
+}
+
+interface WorkerRuntimeFrameEvent {
+    runtimeId: string;
+    url: string;
+    direction: 'received' | 'sent';
+    payloadData: string;
+    timestamp: number;
 }
 
 /** 提供缺少调试目标标题时的稳定展示名称。 */
@@ -136,6 +151,7 @@ export default defineBackground(() => {
     const childTargetParents = new Map<string, string>();
     const targetExecutionContexts = new Map<string, Set<number>>();
     const pendingChildInspections = new Set<Promise<void>>();
+    const workerSocketAliases = new Map<string, Map<string, string>>();
     const pendingSimulationSends = new Map<string, PendingSimulationSend[]>();
     const diagnostics: CaptureDiagnostic[] = [];
     // generation 用于丢弃上一个 Inspector 会话迟到的异步消息。
@@ -148,6 +164,7 @@ export default defineBackground(() => {
     let initialScanning = true;
     let scanTimer: ReturnType<typeof setInterval> | null = null;
     let detachTimer: ReturnType<typeof setTimeout> | null = null;
+    let captureInitialization: Promise<void> | null = null;
     let captureGeneration = 0;
     // 高频帧先在内存聚合，再批量持久化和通知 UI，降低端口通信压力。
     let pendingFrames: FrameRecord[] = [];
@@ -431,6 +448,7 @@ export default defineBackground(() => {
         sessionTargetIds.clear();
         childTargetParents.clear();
         targetExecutionContexts.clear();
+        workerSocketAliases.clear();
         blockedTargetIds.clear();
         occupiedTargetIds.clear();
         pausedConnections.clear();
@@ -499,9 +517,13 @@ export default defineBackground(() => {
         if (
             previousFrame &&
             previousFrame.direction === record.direction &&
-            previousFrame.timestamp === record.timestamp &&
             previousFrame.opcode === record.opcode &&
-            previousFrame.payloadData === record.payloadData
+            previousFrame.payloadData === record.payloadData &&
+            ((previousFrame.timestamp === record.timestamp && previousFrame.captureSource === record.captureSource) ||
+                (previousFrame.captureSource !== record.captureSource &&
+                    Boolean(previousFrame.captureSource) &&
+                    Boolean(record.captureSource) &&
+                    Math.abs(previousFrame.receivedAt - record.receivedAt) <= 250))
         ) {
             return;
         }
@@ -710,6 +732,7 @@ export default defineBackground(() => {
         else if (debuggerSession) rootSessionTargetIds.delete(rootSessionKey(debuggerSession));
         debuggerSessions.delete(targetId);
         targetExecutionContexts.delete(targetId);
+        workerSocketAliases.delete(targetId);
         childTargetParents.delete(targetId);
         for (const key of pausedConnections) {
             if (key.startsWith(targetId + '::')) pausedConnections.delete(key);
@@ -742,7 +765,66 @@ export default defineBackground(() => {
                     const valuesResult = await sendDebuggerCommand(debuggee, 'Runtime.callFunctionOn', {
                         objectId: instancesObjectId,
                         functionDeclaration:
-                            'function () { globalThis.__ycloudWebSocketInspectorSockets = this; return this.map(function (socket) { return { url: socket.url, readyState: socket.readyState, protocol: socket.protocol }; }); }',
+                            `function () {
+                                const bindingName = '__ycloudWebSocketInspectorFrame';
+                                const state = globalThis.__ycloudWebSocketInspectorState || {
+                                    ids: new WeakMap(),
+                                    watched: new WeakSet(),
+                                    nextId: 1,
+                                    sendPatched: false,
+                                };
+                                globalThis.__ycloudWebSocketInspectorState = state;
+                                const socketId = function (socket) {
+                                    let id = state.ids.get(socket);
+                                    if (!id) {
+                                        id = String(state.nextId++);
+                                        state.ids.set(socket, id);
+                                    }
+                                    return id;
+                                };
+                                state.emit = function (socket, direction, data) {
+                                    if (typeof data !== 'string') return;
+                                    const notify = globalThis[bindingName];
+                                    if (typeof notify !== 'function') return;
+                                    try {
+                                        notify(JSON.stringify({
+                                            runtimeId: socketId(socket),
+                                            url: socket.url,
+                                            direction,
+                                            payloadData: data,
+                                            timestamp: Date.now(),
+                                        }));
+                                    } catch {}
+                                };
+                                if (typeof globalThis[bindingName] === 'function' && !state.sendPatched) {
+                                    const originalSend = WebSocket.prototype.send;
+                                    WebSocket.prototype.send = function (data) {
+                                        const result = originalSend.call(this, data);
+                                        state.emit(this, 'sent', data);
+                                        return result;
+                                    };
+                                    state.sendPatched = true;
+                                }
+                                if (typeof globalThis[bindingName] === 'function') {
+                                    this.forEach(function (socket) {
+                                        socketId(socket);
+                                        if (state.watched.has(socket)) return;
+                                        socket.addEventListener('message', function (event) {
+                                            state.emit(socket, 'received', event.data);
+                                        });
+                                        state.watched.add(socket);
+                                    });
+                                }
+                                globalThis.__ycloudWebSocketInspectorSockets = this;
+                                return this.map(function (socket) {
+                                    return {
+                                        url: socket.url,
+                                        readyState: socket.readyState,
+                                        protocol: socket.protocol,
+                                        runtimeId: socketId(socket),
+                                    };
+                                });
+                            }`,
                         returnByValue: true,
                     });
                     return Array.isArray(valuesResult?.result?.value)
@@ -904,6 +986,11 @@ export default defineBackground(() => {
             discoveredSockets,
             () => `runtime:${crypto.randomUUID()}`,
         );
+        const aliases = workerSocketAliases.get(targetId) || new Map<string, string>();
+        workerSocketAliases.set(targetId, aliases);
+        for (const { requestId, runtimeId } of runtimeSockets) {
+            if (runtimeId) aliases.set(runtimeId, requestId);
+        }
         const retainedRequestIds = new Set(runtimeSockets.map(({ requestId }) => requestId));
         for (const [requestId, socket] of sockets) {
             if (socket.urlSource === 'runtime' && !retainedRequestIds.has(requestId)) {
@@ -956,6 +1043,11 @@ export default defineBackground(() => {
         const placeholderKey = targetId + '::' + placeholderRequestId;
         const nextKey = targetId + '::' + requestId;
         const wasPaused = pausedConnections.delete(placeholderKey);
+        for (const [runtimeId, aliasedRequestId] of workerSocketAliases.get(targetId) || []) {
+            if (aliasedRequestId === placeholderRequestId) {
+                workerSocketAliases.get(targetId)?.set(runtimeId, requestId);
+            }
+        }
         removeRuntimeSocketPlaceholder(targetId, placeholderRequestId);
         if (wasPaused) pausedConnections.add(nextKey);
         const adoptedSocket = { ...placeholderSocket };
@@ -1003,6 +1095,11 @@ export default defineBackground(() => {
         const scope = await inspectRuntimeScope(debuggee);
         const targetType = resolveWebSocketTargetType(debuggerTargetType, scope);
         if (!targetType) return null;
+        if (targetType === 'worker') {
+            await sendDebuggerCommand(debuggee, 'Runtime.addBinding', {
+                name: '__ycloudWebSocketInspectorFrame',
+            }).catch(() => undefined);
+        }
         await sendDebuggerCommand(debuggee, 'Network.enable');
         const targetRecord: CaptureTarget = {
             id: targetId,
@@ -1075,6 +1172,8 @@ export default defineBackground(() => {
             return;
         }
         const parentSession = debuggerTarget(rootTargetId);
+        const ownerTarget = attachedTargets.get(event.targetInfo.openerId || rootTargetId);
+        const ownerTabId = ownerTarget?.tabId ?? attachedTargets.get(rootTargetId)?.tabId ?? rootSession.tabId;
         const childSession: chrome.debugger.DebuggerSession = {
             ...(typeof parentSession.tabId === 'number'
                 ? { tabId: parentSession.tabId }
@@ -1093,13 +1192,16 @@ export default defineBackground(() => {
                 childSession,
                 attachedTargets.get(event.targetInfo.openerId || rootTargetId)?.url ||
                     attachedTargets.get(rootTargetId)?.url,
-                parentSession.tabId,
+                ownerTabId,
             );
+            await sendDebuggerCommand(childSession, 'Runtime.runIfWaitingForDebugger').catch(() => undefined);
             if (!targetType) {
                 await safeDetach(targetId);
                 removeTarget(targetId);
             }
         } catch (error) {
+            // 即使初始化失败也必须恢复 Worker，避免调试器影响业务页面。
+            await sendDebuggerCommand(childSession, 'Runtime.runIfWaitingForDebugger').catch(() => undefined);
             await safeDetach(targetId);
             removeTarget(targetId);
             pushDiagnostic('error', error instanceof Error ? error.message : '连接 Web Worker 调试目标失败', targetId);
@@ -1191,7 +1293,15 @@ export default defineBackground(() => {
                 if (!liveIds.has(targetId)) removeTarget(targetId);
             }
             let partialScanFailed = false;
-            for (const target of targets.filter(isWebSocketTargetCandidate)) {
+            const targetPriority = (target: chrome.debugger.TargetInfo): number => {
+                if (target.type === 'page') return 0;
+                if (target.type === 'shared_worker') return 1;
+                return 2;
+            };
+            const candidates = targets.filter(isWebSocketTargetCandidate).sort((left, right) => {
+                return targetPriority(left) - targetPriority(right);
+            });
+            for (const target of candidates) {
                 try {
                     await withTimeout(inspectCandidate(target), 3000);
                 } catch {
@@ -1199,20 +1309,9 @@ export default defineBackground(() => {
                 }
                 await new Promise<void>((resolve) => setTimeout(resolve, TARGET_SCAN_STEP_DELAY_MS));
             }
-            // setAutoAttach 的事件异步到达；等待子会话注册后再兜底，避免双路径争抢同一 Worker。
-            await new Promise<void>((resolve) => setTimeout(resolve, 50));
+            // Dedicated Worker 必须由所属页面的子会话捕获。直接按 targetId 附加会丢失 Tab ID，
+            // 且无法可靠接收附加前已创建 WebSocket 的后续帧事件。
             await Promise.allSettled(pendingChildInspections);
-            const refreshedTargets = await chrome.debugger.getTargets();
-            for (const target of refreshedTargets.filter(
-                (item) => item.type === 'worker' && !item.attached && !attachedTargets.has(item.id),
-            )) {
-                try {
-                    await withTimeout(inspectCandidate(target), 3000);
-                } catch {
-                    partialScanFailed = true;
-                }
-                await new Promise<void>((resolve) => setTimeout(resolve, TARGET_SCAN_STEP_DELAY_MS));
-            }
             if (partialScanFailed) {
                 pushDiagnostic('warning', '部分 WebSocket 目标扫描超时');
             }
@@ -1286,6 +1385,65 @@ export default defineBackground(() => {
         }
         if (method === 'Runtime.executionContextsCleared') {
             targetExecutionContexts.delete(targetId);
+            return;
+        }
+        if (method === 'Runtime.bindingCalled') {
+            const event = (params ?? {}) as RuntimeBindingCalledEvent;
+            const target = attachedTargets.get(targetId);
+            if (event.name !== '__ycloudWebSocketInspectorFrame' || target?.type !== 'worker') return;
+            let runtimeFrame: WorkerRuntimeFrameEvent;
+            try {
+                runtimeFrame = JSON.parse(event.payload) as WorkerRuntimeFrameEvent;
+            } catch {
+                return;
+            }
+            if (
+                !runtimeFrame.runtimeId ||
+                !runtimeFrame.url ||
+                !['received', 'sent'].includes(runtimeFrame.direction) ||
+                typeof runtimeFrame.payloadData !== 'string' ||
+                !Number.isFinite(runtimeFrame.timestamp)
+            ) {
+                return;
+            }
+            const requestId =
+                workerSocketAliases.get(targetId)?.get(runtimeFrame.runtimeId) ||
+                `runtime:${runtimeFrame.runtimeId}`;
+            const sockets = socketMaps.get(targetId);
+            if (!sockets) return;
+            if (!sockets.has(requestId)) {
+                sockets.set(requestId, {
+                    url: runtimeFrame.url,
+                    createdAt: Date.now(),
+                    closedAt: null,
+                    status: 'open',
+                    urlSource: 'runtime',
+                });
+                workerSocketAliases.get(targetId)?.set(runtimeFrame.runtimeId, requestId);
+            }
+            upsertConnectionRecord(targetId, requestId, {
+                url: runtimeFrame.url,
+                status: 'open',
+                closedAt: null,
+            });
+            const connectionKey = targetId + '::' + requestId;
+            if (pausedConnections.has(connectionKey)) return;
+            const frame = buildFrameRecord({
+                id: nextFrameId++,
+                direction: runtimeFrame.direction,
+                params: {
+                    requestId,
+                    timestamp: runtimeFrame.timestamp / 1000,
+                    response: { opcode: 1, mask: false, payloadData: runtimeFrame.payloadData },
+                },
+                socketUrl: runtimeFrame.url,
+                targetId,
+                targetType: target.type,
+                targetUrl: target.url,
+                receivedAt: runtimeFrame.timestamp,
+            });
+            frame.captureSource = 'runtime';
+            appendFrame(frame);
             return;
         }
         const eventParams = (params ?? {}) as DebuggerEventParams;
@@ -1394,6 +1552,7 @@ export default defineBackground(() => {
             targetType: target.type,
             targetUrl: target.url,
         });
+        frame.captureSource = 'cdp';
         if (simulationSend) {
             frame.simulation = 'send';
             frame.eventName = '模拟发送';
@@ -1416,18 +1575,26 @@ export default defineBackground(() => {
             detachTimer = null;
         }
         let disconnected = false;
+        const shouldResetCapture = uiPorts.size === 0;
+        uiPorts.add(port);
         void (async () => {
             await storeReady;
-            flushFrameBatch();
-            await persistenceQueue;
-            try {
-                await resetCaptureSession();
-            } catch (error) {
-                resettingCapture = false;
-                pushDiagnostic('error', error?.message || '重置捕获数据失败', '', 'storage');
+            if (shouldResetCapture && !captureInitialization) {
+                captureInitialization = (async () => {
+                    flushFrameBatch();
+                    await persistenceQueue;
+                    try {
+                        await resetCaptureSession();
+                    } catch (error) {
+                        resettingCapture = false;
+                        pushDiagnostic('error', error?.message || '重置捕获数据失败', '', 'storage');
+                    }
+                })().finally(() => {
+                    captureInitialization = null;
+                });
             }
+            if (captureInitialization) await captureInitialization;
             if (disconnected) return;
-            uiPorts.add(port);
             startScanning();
             port.postMessage(serializeState(true));
         })();

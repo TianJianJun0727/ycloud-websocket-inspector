@@ -25,6 +25,7 @@ export interface FrameRecord {
     truncated: boolean;
     eventName?: string;
     simulation?: 'send' | 'receive' | 'system';
+    captureSource?: 'cdp' | 'runtime';
 }
 
 /** 一次 WebSocket 连接实例，requestId 不同即视为不同连接。 */
@@ -73,6 +74,7 @@ export interface DiscoveredSocket {
     url: string;
     readyState: number;
     protocol?: string;
+    runtimeId?: string;
 }
 
 /** Inspector 展示的捕获目标快照。 */
