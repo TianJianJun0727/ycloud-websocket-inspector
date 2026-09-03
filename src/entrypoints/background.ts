@@ -39,6 +39,7 @@ interface DebuggerCommandResultMap {
     'Runtime.runIfWaitingForDebugger': object;
     'Network.enable': object;
     'Target.detachFromTarget': object;
+    'Target.getTargetInfo': { targetInfo?: { openerId?: string; type?: string } };
     'Target.setAutoAttach': object;
 }
 
@@ -1165,7 +1166,7 @@ export default defineBackground(() => {
             }).catch(() => undefined);
             return;
         }
-        if (type !== 'worker') {
+        if (!['worker', 'shared_worker'].includes(type)) {
             await sendDebuggerCommand({ targetId: rootTargetId }, 'Target.detachFromTarget', {
                 sessionId: event.sessionId,
             }).catch(() => undefined);
@@ -1209,7 +1210,11 @@ export default defineBackground(() => {
         }
     };
 
-    const inspectCandidate = async (target: chrome.debugger.TargetInfo): Promise<void> => {
+    const inspectCandidate = async (
+        target: chrome.debugger.TargetInfo,
+        ownerPageUrl?: string,
+        ownerTabId?: number,
+    ): Promise<void> => {
         if (
             attachedTargets.has(target.id) ||
             blockedTargetIds.has(target.id) ||
@@ -1237,19 +1242,19 @@ export default defineBackground(() => {
                 target.title || '',
                 target.url || '',
                 debuggee,
-                undefined,
-                target.tabId,
+                ownerPageUrl,
+                ownerTabId ?? target.tabId,
             );
             if (!targetType) {
                 blockedTargetIds.add(target.id);
                 await safeDetach(target.id);
-                debuggerSessions.delete(target.id);
+                removeTarget(target.id);
                 return;
             }
             if (targetType === 'page') {
                 await sendDebuggerCommand(debuggee, 'Target.setAutoAttach', {
                     autoAttach: true,
-                    filter: [{ type: 'worker' }, { exclude: true }],
+                    filter: [{ type: 'worker' }, { type: 'shared_worker' }, { exclude: true }],
                     flatten: true,
                     waitForDebuggerOnStart: false,
                 });
@@ -1309,9 +1314,37 @@ export default defineBackground(() => {
                 }
                 await new Promise<void>((resolve) => setTimeout(resolve, TARGET_SCAN_STEP_DELAY_MS));
             }
-            // Dedicated Worker 必须由所属页面的子会话捕获。直接按 targetId 附加会丢失 Tab ID，
-            // 且无法可靠接收附加前已创建 WebSocket 的后续帧事件。
+            // 先等待页面自动附加 Dedicated Worker，避免后续兜底直接抢占其调试目标。
+            await new Promise<void>((resolve) => setTimeout(resolve, 100));
             await Promise.allSettled(pendingChildInspections);
+            // 部分 Chromium 版本会把 SharedWorker 暴露为通用 worker。剩余目标统一通过运行时
+            // 判定类型；若存在 opener，则同时补全 Dedicated Worker 的所属页面和 Tab ID。
+            const refreshedTargets = await chrome.debugger.getTargets();
+            const pageSession = [...attachedTargets.entries()].find(([, target]) => target.type === 'page');
+            const pageDebuggee = pageSession ? debuggerTarget(pageSession[0]) : null;
+            for (const target of refreshedTargets.filter(
+                (item) =>
+                    item.type === 'worker' &&
+                    !item.attached &&
+                    !attachedTargets.has(item.id) &&
+                    !blockedTargetIds.has(item.id),
+            )) {
+                try {
+                    let ownerTarget: CaptureTarget | undefined;
+                    if (pageDebuggee) {
+                        const targetInfo = await sendDebuggerCommand(pageDebuggee, 'Target.getTargetInfo', {
+                            targetId: target.id,
+                        }).catch(() => null);
+                        ownerTarget = targetInfo?.targetInfo?.openerId
+                            ? attachedTargets.get(targetInfo.targetInfo.openerId)
+                            : undefined;
+                    }
+                    await withTimeout(inspectCandidate(target, ownerTarget?.url, ownerTarget?.tabId), 3000);
+                } catch {
+                    partialScanFailed = true;
+                }
+                await new Promise<void>((resolve) => setTimeout(resolve, TARGET_SCAN_STEP_DELAY_MS));
+            }
             if (partialScanFailed) {
                 pushDiagnostic('warning', '部分 WebSocket 目标扫描超时');
             }
