@@ -544,13 +544,16 @@ export default defineBackground(() => {
         command: Extract<InspectorCommand, { type: 'simulate' }>,
         targetUrl: string,
     ): FrameRecord => {
-        const systemPayload =
-            command.action === 'close'
-                ? `[模拟系统事件] close (${command.closeCode || 1000}) ${command.closeReason || ''}`.trim()
-                : `[模拟系统事件] ${command.action}`;
+        const isClientEvent = command.action.startsWith('client-');
+        const isServerEvent = command.action.startsWith('server-');
+        const isCloseEvent = command.action.endsWith('-close');
+        const eventSide = isClientEvent ? '客户端' : '服务端';
+        const systemPayload = isCloseEvent
+            ? `[模拟${eventSide}事件] close (${command.closeCode ?? 1000}) ${command.closeReason || ''}`.trim()
+            : `[模拟${eventSide}事件] error: ${command.payload || '未知错误'}`;
         const record = buildFrameRecord({
             id: nextFrameId++,
-            direction: command.action === 'send' ? 'sent' : 'received',
+            direction: command.action === 'send' || isClientEvent ? 'sent' : 'received',
             params: {
                 requestId: command.requestId,
                 timestamp: Date.now() / 1000,
@@ -572,7 +575,7 @@ export default defineBackground(() => {
                 ? '模拟发送'
                 : command.action === 'receive'
                   ? '模拟接收'
-                  : `模拟 ${command.action}`;
+                  : `模拟${isServerEvent ? '服务端' : '客户端'}${isCloseEvent ? '关闭' : '错误'}`;
         appendFrame(record);
         return record;
     };
@@ -826,6 +829,12 @@ export default defineBackground(() => {
         if (new TextEncoder().encode(payload).byteLength > 1024 * 1024) {
             return { success: false, message: '模拟消息不能超过 1 MB' };
         }
+        if (action === 'client-close' && (closeCode !== 1000 && (closeCode < 3000 || closeCode > 4999))) {
+            return { success: false, message: '客户端主动关闭仅支持代码 1000 或 3000-4999' };
+        }
+        if (action.endsWith('-close') && new TextEncoder().encode(closeReason).byteLength > 123) {
+            return { success: false, message: '关闭原因不能超过 123 字节' };
+        }
         const socket = socketMaps.get(targetId)?.get(requestId);
         if (!socket?.runtimeId) return { success: false, message: '当前连接实例映射尚未就绪，请稍后重试' };
         const debuggee = debuggerTarget(targetId);
@@ -850,14 +859,32 @@ export default defineBackground(() => {
                                 origin: new URL(socket.url).origin,
                             }));
                         }
-                        else if (action === 'close') socket.dispatchEvent(new CloseEvent('close', { code: closeCode, reason: closeReason, wasClean: false }));
-                        else if (action !== 'send') socket.dispatchEvent(new Event(action));
+                        else if (action === 'client-close') socket.close(closeCode, closeReason);
+                        else if (action === 'server-close') {
+                            socket.dispatchEvent(new CloseEvent('close', {
+                                code: closeCode,
+                                reason: closeReason,
+                                wasClean: closeCode === 1000,
+                            }));
+                        }
+                        else if (action === 'client-error' || action === 'server-error') {
+                            socket.dispatchEvent(new ErrorEvent('error', {
+                                message: payload || '模拟 WebSocket 错误',
+                                error: new Error(payload || '模拟 WebSocket 错误'),
+                            }));
+                        }
                     } finally {
                         state.simulationDepth = Math.max(0, state.simulationDepth - 1);
                     }
                     return {
                         success: true,
-                        message: action === 'send' ? '消息已通过真实连接发送' : '模拟事件已分发给业务监听器',
+                        message: action === 'send'
+                            ? '消息已通过真实连接发送'
+                            : action === 'receive'
+                              ? '模拟消息已分发给业务监听器'
+                              : action === 'client-close'
+                                ? '已通过真实连接发起关闭握手'
+                                : '模拟事件已分发给业务监听器',
                     };
                 })()`,
                 returnByValue: true,
@@ -1259,7 +1286,8 @@ export default defineBackground(() => {
         } catch (error) {
             const previousRetry = targetRetryStates.get(target.id);
             const failureCount = (previousRetry?.failureCount || 0) + 1;
-            const retryDelay = TARGET_RETRY_DELAYS_MS[Math.min(failureCount - 1, TARGET_RETRY_DELAYS_MS.length - 1)];
+            const retryDelay =
+                TARGET_RETRY_DELAYS_MS[Math.min(failureCount - 1, TARGET_RETRY_DELAYS_MS.length - 1)] ?? 30000;
             targetRetryStates.set(target.id, { failureCount, retryAt: Date.now() + retryDelay });
             await safeDetach(target.id);
             removeTarget(target.id);
@@ -1300,6 +1328,7 @@ export default defineBackground(() => {
         const worker = async (): Promise<void> => {
             while (nextIndex < candidates.length) {
                 const target = candidates[nextIndex++];
+                if (!target) continue;
                 if (!shouldQueueTarget(target)) continue;
                 try {
                     const owner = resolveOwner ? await resolveOwner(target) : undefined;
@@ -1308,7 +1337,8 @@ export default defineBackground(() => {
                     const previousRetry = targetRetryStates.get(target.id);
                     const failureCount = (previousRetry?.failureCount || 0) + 1;
                     const retryDelay =
-                        TARGET_RETRY_DELAYS_MS[Math.min(failureCount - 1, TARGET_RETRY_DELAYS_MS.length - 1)];
+                        TARGET_RETRY_DELAYS_MS[Math.min(failureCount - 1, TARGET_RETRY_DELAYS_MS.length - 1)] ??
+                        30000;
                     targetRetryStates.set(target.id, { failureCount, retryAt: Date.now() + retryDelay });
                     partialScanFailed = true;
                 }
@@ -1347,7 +1377,7 @@ export default defineBackground(() => {
             let partialScanFailed = false;
             const targetPriority = (target: chrome.debugger.TargetInfo): number => {
                 if (target.type === 'page') return 0;
-                if (target.type === 'shared_worker') return 1;
+                if (String(target.type) === 'shared_worker') return 1;
                 return 2;
             };
             // Page 必须先完成自动附加，避免并发队列直接抢占其 Worker 子目标并丢失 Network 事件。
@@ -1406,7 +1436,7 @@ export default defineBackground(() => {
             await refreshAttachedTargets();
         } catch (error: unknown) {
             scanning = false;
-            addDiagnostic('error', 'capture', error instanceof Error ? error.message : '刷新调试目标失败');
+            pushDiagnostic('error', error instanceof Error ? error.message : '刷新调试目标失败');
             broadcast();
             return;
         }

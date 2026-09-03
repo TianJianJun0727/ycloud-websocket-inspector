@@ -105,7 +105,13 @@ export interface FrameStoreLimits {
 }
 
 /** 模拟面板支持的 WebSocket 操作。 */
-export type SimulationAction = 'send' | 'receive' | 'open' | 'error' | 'close';
+export type SimulationAction =
+    | 'send'
+    | 'receive'
+    | 'client-close'
+    | 'client-error'
+    | 'server-close'
+    | 'server-error';
 
 /** 模拟操作的执行结果。 */
 export interface SimulationResult {

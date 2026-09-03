@@ -26,8 +26,8 @@ import type {
 import { ConnectionSidebar } from './components/ConnectionSidebar';
 import {
     collectConnectionDomains,
-    DEFAULT_CONNECTION_LIST_FILTERS,
     filterConnections,
+    parseConnectionListFilters,
 } from './connection-list-filter';
 import { parseConnectionGroup, parseConnectionListSort, sortConnections } from './connection-list-sort';
 import { FrameDetail } from './components/FrameDetail';
@@ -72,6 +72,41 @@ const INITIAL_SCAN_INTERVAL_MS = [3000, 5000, 10000, 20000, 30000, 60000, 180000
 )
     ? savedScanIntervalMs
     : DEFAULT_SCAN_INTERVAL_MS;
+const DISPLAY_SETTINGS_KEY = 'ycloud-ws-display-settings-v1';
+
+interface StoredDisplaySettings {
+    hideHeartbeat: boolean;
+    heartbeatMessages: string;
+    showMetadata: boolean;
+}
+
+/** 从本地存储安全恢复消息显示设置。 */
+const readDisplaySettings = (): StoredDisplaySettings => {
+    const defaults: StoredDisplaySettings = {
+        hideHeartbeat: false,
+        heartbeatMessages: DEFAULT_HEARTBEAT_MESSAGES,
+        showMetadata: true,
+    };
+    try {
+        const raw = localStorage.getItem(DISPLAY_SETTINGS_KEY);
+        if (!raw) return defaults;
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return defaults;
+        const record = parsed as Record<string, unknown>;
+        return {
+            hideHeartbeat: typeof record.hideHeartbeat === 'boolean' ? record.hideHeartbeat : defaults.hideHeartbeat,
+            heartbeatMessages:
+                typeof record.heartbeatMessages === 'string'
+                    ? record.heartbeatMessages
+                    : defaults.heartbeatMessages,
+            showMetadata: typeof record.showMetadata === 'boolean' ? record.showMetadata : defaults.showMetadata,
+        };
+    } catch {
+        return defaults;
+    }
+};
+
+const INITIAL_DISPLAY_SETTINGS = readDisplaySettings();
 
 /** 将 Chrome Runtime Port 收敛为 Inspector 与演示环境共用的通信接口。 */
 const createRuntimePort = (): InspectorPort | null => {
@@ -143,7 +178,9 @@ export const App = () => {
     const [scanIntervalMs, setScanIntervalMs] = useState(INITIAL_SCAN_INTERVAL_MS);
     const [diagnosticTick, setDiagnosticTick] = useState(0);
     const [selectedConnection, setSelectedConnection] = useState<string | null>(null);
-    const [connectionFilters, setConnectionFilters] = useState(DEFAULT_CONNECTION_LIST_FILTERS);
+    const [connectionFilters, setConnectionFilters] = useState(() =>
+        parseConnectionListFilters(localStorage.getItem('ycloud-ws-connection-filters-v1')),
+    );
     const [connectionGroup, setConnectionGroup] = useState(() =>
         parseConnectionGroup(localStorage.getItem('ycloud-ws-connection-group-v1')),
     );
@@ -152,12 +189,14 @@ export const App = () => {
     );
     const [selectedFrameId, setSelectedFrameId] = useState<number | null>(null);
     const [filters, setFilters] = useState<Record<string, ConnectionFilter>>({});
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() =>
+        localStorage.getItem('ycloud-ws-frame-sort-v1') === 'desc' ? 'desc' : 'asc',
+    );
     const [themePreference, setThemePreference] = useState<ThemePreference>('auto');
     const [season, setSeason] = useState(() => resolveThemeSeason('auto'));
-    const [hideHeartbeat, setHideHeartbeat] = useState(false);
-    const [heartbeatMessagesText, setHeartbeatMessagesText] = useState(DEFAULT_HEARTBEAT_MESSAGES);
-    const [showMetadata, setShowMetadata] = useState(true);
+    const [hideHeartbeat, setHideHeartbeat] = useState(INITIAL_DISPLAY_SETTINGS.hideHeartbeat);
+    const [heartbeatMessagesText, setHeartbeatMessagesText] = useState(INITIAL_DISPLAY_SETTINGS.heartbeatMessages);
+    const [showMetadata, setShowMetadata] = useState(INITIAL_DISPLAY_SETTINGS.showMetadata);
     const [colorMode, setColorMode] = useState<ColorMode>('system');
     const [followLatest, setFollowLatest] = useState(true);
     const [copied, setCopied] = useState(false);
@@ -255,6 +294,28 @@ export const App = () => {
     useEffect(() => {
         localStorage.setItem('ycloud-ws-connection-group-v1', connectionGroup);
     }, [connectionGroup]);
+
+    useEffect(() => {
+        localStorage.setItem(
+            'ycloud-ws-connection-filters-v1',
+            JSON.stringify({
+                targetTypes: connectionFilters.targetTypes,
+                statuses: connectionFilters.statuses,
+                domains: connectionFilters.domains,
+            }),
+        );
+    }, [connectionFilters.domains, connectionFilters.statuses, connectionFilters.targetTypes]);
+
+    useEffect(() => {
+        localStorage.setItem('ycloud-ws-frame-sort-v1', sortOrder);
+    }, [sortOrder]);
+
+    useEffect(() => {
+        localStorage.setItem(
+            DISPLAY_SETTINGS_KEY,
+            JSON.stringify({ hideHeartbeat, heartbeatMessages: heartbeatMessagesText, showMetadata }),
+        );
+    }, [heartbeatMessagesText, hideHeartbeat, showMetadata]);
 
     useEffect(() => {
         const saved = localStorage.getItem('ycloud-ws-theme');

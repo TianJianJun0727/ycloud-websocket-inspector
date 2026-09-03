@@ -1,7 +1,7 @@
 import { RefreshCw, Settings, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-import { THEME_OPTIONS, type ColorMode, type Season, type ThemePreference } from '../theme';
+import { SEASON_DETAILS, THEME_OPTIONS, type ColorMode, type Season, type ThemePreference } from '../theme';
 
 interface InspectorHeaderProps {
     colorMode: ColorMode;
@@ -21,7 +21,6 @@ interface InspectorHeaderProps {
     onRescan: () => void;
 }
 
-const SEASON_LABELS: Record<Season, string> = { spring: '春季', summer: '夏季', autumn: '秋季', winter: '冬季' };
 const COLOR_MODES: Array<{ value: ColorMode; label: string }> = [
     { value: 'system', label: '跟随系统' },
     { value: 'light', label: '亮色' },
@@ -39,6 +38,12 @@ const SCAN_INTERVAL_OPTIONS = [
     { label: '5 分钟', value: 300000 },
     { label: '10 分钟', value: 600000 },
 ];
+const LOCAL_DATE_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+});
 
 /** 展示产品标识、当前外观和真实生效的调试器设置。 */
 export const InspectorHeader = ({
@@ -59,7 +64,9 @@ export const InspectorHeader = ({
     onRescan,
 }: InspectorHeaderProps) => {
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [currentDate, setCurrentDate] = useState(() => new Date());
     const settingsRef = useRef<HTMLDivElement | null>(null);
+    const seasonDetails = SEASON_DETAILS[season];
 
     useEffect(() => {
         if (!settingsOpen) return;
@@ -70,6 +77,17 @@ export const InspectorHeader = ({
         document.addEventListener('pointerdown', closeOnOutsideClick);
         return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
     }, [settingsOpen]);
+
+    useEffect(() => {
+        /** 页面跨越日期或重新获得焦点时刷新本地日期。 */
+        const refreshDate = (): void => setCurrentDate(new Date());
+        const timer = window.setInterval(refreshDate, 60 * 1000);
+        document.addEventListener('visibilitychange', refreshDate);
+        return () => {
+            window.clearInterval(timer);
+            document.removeEventListener('visibilitychange', refreshDate);
+        };
+    }, []);
 
     /** 恢复界面的默认主题与数据展示偏好。 */
     const resetSettings = (): void => {
@@ -85,17 +103,25 @@ export const InspectorHeader = ({
         <header className="inspector-header">
             <div className="brand-lockup">
                 <span className="brand-mark">
-                    <img alt="YCloud" src="/assets/ycloud-logo.svg" />
+                    <img className="brand-logo-light" alt="YCloud" src="/assets/ycloud-logo-light.svg" />
+                    <img className="brand-logo-dark" alt="" aria-hidden="true" src="/assets/ycloud-logo-dark.svg" />
                 </span>
                 <div>
                     <h1>YCloud WebSocket 调试器</h1>
                     <p>实时捕获、检索与调试浏览器中的 WebSocket 连接和消息</p>
                 </div>
             </div>
+            <div className="season-almanac" aria-label={`${seasonDetails.label}时令诗句`}>
+                <time>{LOCAL_DATE_FORMATTER.format(currentDate)}</time>
+                <p>
+                    <span>{seasonDetails.poem[0]}</span>
+                    <span>{seasonDetails.poem[1]}</span>
+                </p>
+            </div>
             <div className="header-actions">
                 <span className="season-name">
                     <Sparkles size={14} />
-                    {SEASON_LABELS[season]} · {COLOR_MODE_LABELS[colorMode]}
+                    {seasonDetails.label} · {COLOR_MODE_LABELS[colorMode]}
                 </span>
                 <div className="settings-control" ref={settingsRef}>
                     <button
@@ -115,22 +141,6 @@ export const InspectorHeader = ({
                                 <div>
                                     <strong>显示设置</strong>
                                 </div>
-                            </div>
-                            <div className="settings-section">
-                                <strong className="settings-section-title">扫描设置</strong>
-                                <label htmlFor="scan-interval">扫描周期</label>
-                                <select
-                                    className="heartbeat-input"
-                                    id="scan-interval"
-                                    onChange={(event) => onScanIntervalChange(Number(event.target.value))}
-                                    value={scanIntervalMs}
-                                >
-                                    {SCAN_INTERVAL_OPTIONS.map((option) => (
-                                        <option key={option.value} value={option.value}>
-                                            {option.label}
-                                        </option>
-                                    ))}
-                                </select>
                             </div>
                             <div className="settings-section">
                                 <label>显示模式</label>
@@ -153,7 +163,7 @@ export const InspectorHeader = ({
                                         onClick={() => onThemeChange('auto')}
                                         type="button"
                                     >
-                                        自动
+                                        随时令
                                     </button>
                                     {THEME_OPTIONS.filter(({ value }) => value !== 'auto').map((option) => (
                                         <button
@@ -166,6 +176,19 @@ export const InspectorHeader = ({
                                         </button>
                                     ))}
                                 </div>
+                                <label htmlFor="scan-interval">扫描周期</label>
+                                <select
+                                    className="heartbeat-input"
+                                    id="scan-interval"
+                                    onChange={(event) => onScanIntervalChange(Number(event.target.value))}
+                                    value={scanIntervalMs}
+                                >
+                                    {SCAN_INTERVAL_OPTIONS.map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                            {option.label}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                             <div className="settings-section">
                                 <strong className="settings-section-title">消息显示</strong>

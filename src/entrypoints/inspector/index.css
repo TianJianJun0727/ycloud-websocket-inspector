@@ -16,8 +16,11 @@
     --surface-solid: #fbfdf9;
     --muted: #627269;
     --background: #f5faf5;
-    --hero: url('/assets/theme-spring.png');
+    --hero: url('/assets/theme-spring.jpg');
     --hero-y: -10vw;
+    --dark-base: #07150f;
+    --dark-wash: rgba(7, 28, 18, 0.3);
+    --dark-wash-strong: rgba(4, 13, 9, 0.46);
 }
 :root[data-season='summer'] {
     --text: #10283b;
@@ -29,8 +32,11 @@
     --surface-solid: #f8fcff;
     --muted: #5d7080;
     --background: #f4faff;
-    --hero: url('/assets/theme-summer.png');
-    --hero-y: -13vw;
+    --hero: url('/assets/theme-summer.jpg');
+    --hero-y: -20vw;
+    --dark-base: #061722;
+    --dark-wash: rgba(5, 31, 43, 0.28);
+    --dark-wash-strong: rgba(3, 15, 23, 0.44);
 }
 :root[data-season='autumn'] {
     --text: #302116;
@@ -42,8 +48,11 @@
     --surface-solid: #fffaf4;
     --muted: #7c6857;
     --background: #fff8ef;
-    --hero: url('/assets/theme-autumn.png');
-    --hero-y: -7vw;
+    --hero: url('/assets/theme-autumn.jpg');
+    --hero-y: -13vw;
+    --dark-base: #1b1008;
+    --dark-wash: rgba(48, 25, 9, 0.27);
+    --dark-wash-strong: rgba(20, 11, 5, 0.42);
 }
 :root[data-season='winter'] {
     --text: #1d2447;
@@ -55,16 +64,19 @@
     --surface-solid: #fafbff;
     --muted: #666b86;
     --background: #f6f7fd;
-    --hero: url('/assets/theme-winter.png');
-    --hero-y: -12vw;
+    --hero: url('/assets/theme-winter.jpg');
+    --hero-y: -14vw;
+    --dark-base: #0a1020;
+    --dark-wash: rgba(15, 25, 48, 0.3);
+    --dark-wash-strong: rgba(6, 11, 24, 0.47);
 }
 :root[data-color-mode='dark'] {
     --text: #edf3fb;
     --accent-strong: color-mix(in srgb, var(--accent) 55%, white);
-    --surface: rgba(13, 20, 33, 0.78);
-    --surface-solid: #111a2a;
+    --surface: color-mix(in srgb, var(--dark-base) 42%, transparent);
+    --surface-solid: color-mix(in srgb, var(--dark-base) 78%, #1b2637);
     --muted: #aeb9ca;
-    --background: #0a111d;
+    --background: var(--dark-base);
     --border: color-mix(in srgb, var(--accent) 24%, #3a4659);
     --accent-soft: color-mix(in srgb, var(--accent) 20%, #182235);
 }
@@ -115,34 +127,40 @@ button {
 }
 .inspector-shell {
     position: relative;
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
     background:
-        linear-gradient(
-            180deg,
-            transparent 0 136px,
-            color-mix(in srgb, var(--background) 38%, transparent) 230px,
-            var(--background) 460px
-        ),
-        var(--hero) center var(--hero-y) / 100% auto no-repeat,
+        var(--hero) center / cover no-repeat,
         var(--background);
 }
-:root[data-color-mode='dark'] .inspector-shell::before {
+.inspector-shell::after {
     position: absolute;
     z-index: 0;
-    top: 0;
-    right: 0;
-    left: 0;
-    height: 150px;
-    background: rgba(7, 13, 23, 0.48);
+    inset: 0;
+    background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--background) 52%, transparent),
+        color-mix(in srgb, var(--accent) 10%, transparent) 52%,
+        color-mix(in srgb, var(--background) 42%, transparent)
+    );
     content: '';
     pointer-events: none;
+}
+:root[data-color-mode='dark'] .inspector-shell::before {
+    content: none;
+}
+:root[data-color-mode='dark'] .inspector-shell::after {
+    background: linear-gradient(135deg, var(--dark-wash), var(--dark-wash-strong));
 }
 .inspector-header,
 .workspace-frame {
     position: relative;
+}
+.workspace-frame {
+    z-index: 1;
 }
 .inspector-header {
     position: relative;
@@ -166,12 +184,27 @@ button {
     place-items: center;
     border-radius: 14px;
     background: var(--accent);
-    box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 28%, transparent);
+    border: 1px solid color-mix(in srgb, white 24%, transparent);
+    box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 .brand-mark img {
     width: 30px;
     height: 30px;
-    filter: brightness(0) invert(1);
+    filter: none;
+}
+.brand-logo-dark {
+    display: none;
+}
+:root[data-color-mode='dark'] .brand-logo-light {
+    display: none;
+}
+:root[data-color-mode='dark'] .brand-logo-dark {
+    display: block;
+}
+:root[data-color-mode='dark'] .brand-mark {
+    border-color: color-mix(in srgb, var(--accent) 34%, #ffffff);
+    background: var(--accent);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 .brand-lockup h1 {
     margin: 0;
@@ -187,8 +220,34 @@ button {
 }
 .header-actions {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
     gap: 8px;
+}
+.season-almanac {
+    display: grid;
+    flex: 1;
+    gap: 5px;
+    place-items: center;
+    padding-inline: 24px;
+    text-align: center;
+}
+.season-almanac time {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-shadow: 0 1px 2px color-mix(in srgb, var(--background) 88%, transparent);
+}
+.season-almanac p {
+    display: flex;
+    gap: 12px;
+    margin: 0;
+    color: var(--accent-strong);
+    font-family: 'STKaiti', 'KaiTi', serif;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-shadow: 0 1px 3px var(--background);
 }
 .season-name {
     display: flex;
@@ -198,7 +257,13 @@ button {
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--accent-strong);
-    background: var(--surface);
+    background:
+        linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--surface) 78%, transparent),
+            color-mix(in srgb, var(--surface) 70%, transparent)
+        ),
+        var(--hero) right center / cover no-repeat;
     font-size: 12px;
 }
 .icon-button,
@@ -337,19 +402,24 @@ button {
 }
 .season-mode-control {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 7px;
 }
 .season-mode-control button {
-    height: 29px;
-    padding: 0;
+    min-width: 0;
+    white-space: nowrap;
+}
+.season-mode-control button {
+    height: 30px;
+    padding: 0 8px;
     border: 0;
     border-right: 1px solid var(--border);
+    border-radius: 0;
     background: rgba(255, 255, 255, 0.35);
     cursor: pointer;
-    font-size: 10px;
+    font-size: 11px;
 }
 .season-mode-control button:last-child {
     border-right: 0;
@@ -512,6 +582,14 @@ button {
     background: var(--surface);
     box-shadow: 0 12px 34px rgba(39, 62, 80, 0.08);
     backdrop-filter: blur(10px);
+}
+:root[data-color-mode='dark'] .workspace-frame {
+    background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--dark-base) 18%, transparent),
+        color-mix(in srgb, var(--dark-base) 26%, transparent)
+    );
+    backdrop-filter: brightness(0.72) saturate(0.82);
 }
 .workspace {
     width: 100%;
@@ -1537,6 +1615,14 @@ button {
     color: #e7edf7;
     background: rgba(22, 31, 46, 0.82);
 }
+:root[data-color-mode='dark'] .season-almanac time {
+    color: rgba(244, 247, 252, 0.82);
+    text-shadow: 0 1px 4px rgba(3, 8, 18, 0.95);
+}
+:root[data-color-mode='dark'] .season-almanac p {
+    color: color-mix(in srgb, var(--accent) 42%, white);
+    text-shadow: 0 1px 4px rgba(3, 8, 18, 0.95);
+}
 :root[data-color-mode='dark'] .messages-panel {
     background: rgba(17, 26, 42, 0.58);
 }
@@ -1637,6 +1723,22 @@ button {
     grid-template-columns: 110px minmax(0, 1fr);
     gap: 10px;
 }
+
+.simulation-scope-tabs {
+    width: 100%;
+}
+
+.simulation-scope-tabs button {
+    flex: 1;
+    justify-content: center;
+}
+
+.simulation-scope-copy {
+    margin: -6px 0 0;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.6;
+}
 .simulation-notice {
     display: flex;
     align-items: flex-start;
@@ -1712,4 +1814,97 @@ button {
     .notice-card {
         padding-block: 10px;
     }
+}
+
+/* Keep dark mode translucent and aligned with the active seasonal palette. */
+:root[data-color-mode='dark'] {
+    --dark-control: color-mix(in srgb, var(--dark-base) 48%, transparent);
+    --dark-control-hover: color-mix(in srgb, var(--accent) 13%, var(--dark-base));
+    --dark-panel: color-mix(in srgb, var(--dark-base) 68%, transparent);
+}
+:root[data-color-mode='dark'] .season-name,
+:root[data-color-mode='dark'] .settings-popover {
+    border-color: color-mix(in srgb, var(--accent) 34%, #526075);
+    color: var(--text);
+    background: var(--dark-panel);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(14px) saturate(1.08);
+}
+:root[data-color-mode='dark'] .season-name {
+    color: var(--accent-strong);
+    background: var(--dark-control);
+}
+:root[data-color-mode='dark'] .icon-button,
+:root[data-color-mode='dark'] .connection-sort-trigger,
+:root[data-color-mode='dark'] .connection-filter-trigger,
+:root[data-color-mode='dark'] .reset-settings,
+:root[data-color-mode='dark'] .heartbeat-input,
+:root[data-color-mode='dark'] .color-mode-control button:not(.is-active),
+:root[data-color-mode='dark'] .season-mode-control button:not(.is-active),
+:root[data-color-mode='dark'] .segmented-control button:not(.is-active) {
+    border-color: var(--border);
+    color: var(--muted);
+    background: var(--dark-control);
+}
+:root[data-color-mode='dark'] .icon-button:hover:not(:disabled),
+:root[data-color-mode='dark'] .connection-sort-trigger:hover,
+:root[data-color-mode='dark'] .connection-filter-trigger:hover,
+:root[data-color-mode='dark'] .reset-settings:hover,
+:root[data-color-mode='dark'] .color-mode-control button:hover:not(.is-active),
+:root[data-color-mode='dark'] .season-mode-control button:hover:not(.is-active),
+:root[data-color-mode='dark'] .segmented-control button:hover:not(.is-active) {
+    border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+    color: var(--text);
+    background: var(--dark-control-hover);
+}
+:root[data-color-mode='dark'] .connection-item {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--dark-base) 12%, transparent);
+    transition:
+        border-color 160ms ease,
+        background-color 160ms ease,
+        box-shadow 160ms ease;
+}
+:root[data-color-mode='dark'] .connection-item:hover {
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--dark-base));
+}
+:root[data-color-mode='dark'] .connection-item.is-selected,
+:root[data-color-mode='dark'] .connection-item[aria-selected='true'] {
+    border-color: color-mix(in srgb, var(--accent) 56%, var(--border));
+    background: linear-gradient(
+        105deg,
+        color-mix(in srgb, var(--accent) 20%, var(--dark-base)),
+        color-mix(in srgb, var(--accent) 7%, var(--dark-base))
+    );
+    box-shadow:
+        inset 3px 0 0 var(--accent),
+        0 8px 22px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root[data-color-mode='dark'] .messages-panel {
+    background: color-mix(in srgb, var(--dark-base) 8%, transparent);
+}
+:root[data-color-mode='dark'] .frame-table thead {
+    background: color-mix(in srgb, var(--dark-base) 46%, transparent);
+}
+:root[data-color-mode='dark'] .frame-table tbody tr {
+    transition: background-color 140ms ease;
+}
+:root[data-color-mode='dark'] .frame-table tbody tr:hover {
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+:root[data-color-mode='dark'] .frame-table tbody tr[aria-selected='true'],
+:root[data-color-mode='dark'] .frame-table tbody tr[aria-selected='true']:hover {
+    background: color-mix(in srgb, var(--accent) 15%, var(--dark-base));
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+:root[data-color-mode='dark'] .simulation-panel,
+:root[data-color-mode='dark'] .message-detail {
+    background: color-mix(in srgb, var(--dark-base) 24%, transparent);
+}
+:root[data-color-mode='dark'] .simulation-panel textarea,
+:root[data-color-mode='dark'] .payload-section pre {
+    border-color: var(--border);
+    color: var(--text);
+    background: color-mix(in srgb, var(--dark-base) 40%, transparent);
 }

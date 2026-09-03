@@ -19,6 +19,34 @@ export const DEFAULT_CONNECTION_LIST_FILTERS: ConnectionListFilters = {
     domains: [],
 };
 
+/** 从本地存储安全恢复高级筛选，搜索词保持为临时状态。 */
+export const parseConnectionListFilters = (value: string | null): ConnectionListFilters => {
+    if (!value) return DEFAULT_CONNECTION_LIST_FILTERS;
+    try {
+        const parsed: unknown = JSON.parse(value);
+        if (!parsed || typeof parsed !== 'object') return DEFAULT_CONNECTION_LIST_FILTERS;
+        const record = parsed as Record<string, unknown>;
+        const targetTypes = Array.isArray(record.targetTypes)
+            ? record.targetTypes.filter(
+                  (item): item is WebSocketTargetType =>
+                      item === 'page' || item === 'worker' || item === 'shared_worker',
+              )
+            : [];
+        const statuses = Array.isArray(record.statuses)
+            ? record.statuses.filter(
+                  (item): item is ConnectionListStatus =>
+                      item === 'recording' || item === 'connecting' || item === 'paused' || item === 'closed',
+              )
+            : [];
+        const domains = Array.isArray(record.domains)
+            ? record.domains.filter((item): item is string => typeof item === 'string')
+            : [];
+        return { search: '', targetTypes, statuses, domains };
+    } catch {
+        return DEFAULT_CONNECTION_LIST_FILTERS;
+    }
+};
+
 /** 提取 WebSocket 地址的域名，地址无效时回退到原始文本。 */
 export const connectionDomain = (connection: ConnectionRecord): string => {
     const source = connection.url || connection.targetUrl;
