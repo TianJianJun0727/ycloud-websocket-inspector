@@ -46,6 +46,10 @@ export const FrameToolbar = ({
             <strong title={selectedConnectionData?.url || selectedConnectionData?.targetUrl}>
                 {selectedConnectionData ? displayConnection(selectedConnectionData) : '未选择连接'}
             </strong>
+            {selectedConnectionData &&
+                (selectedConnectionData.targetType === 'page' || selectedConnectionData.targetType === 'worker') && (
+                    <span className="frame-tab-id">Tab ID {selectedConnectionData.tabId ?? '未知'}</span>
+                )}
             <span
                 className={`frame-connection-status${disconnected || storageError || captureError ? ' is-error' : ''}`}
             >

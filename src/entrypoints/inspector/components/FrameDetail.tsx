@@ -2,11 +2,12 @@ import { Copy, X } from 'lucide-react';
 import { useState } from 'react';
 
 import { formatByteSize } from '../../../lib/frame-utils';
-import type { FrameRecord } from '../../../types/capture';
+import type { ConnectionRecord, FrameRecord } from '../../../types/capture';
 import { displayConnection, displayUrl, formatClock, targetTypeLabel } from '../inspector-helpers';
 
 interface FrameDetailProps {
     copied: boolean;
+    connection?: ConnectionRecord;
     formattedPayload: string;
     frame: FrameRecord;
     showMetadata: boolean;
@@ -15,8 +16,11 @@ interface FrameDetailProps {
 }
 
 /** 生成详情面板所需的固定元数据。 */
-const getMetadata = (frame: FrameRecord): Array<[string, string]> => [
+const getMetadata = (frame: FrameRecord, connection: ConnectionRecord | undefined): Array<[string, string]> => [
     ['时间', formatClock(frame.receivedAt)],
+    ...(connection && (connection.targetType === 'page' || connection.targetType === 'worker')
+        ? ([['Tab ID', String(connection.tabId ?? '未知')]] as Array<[string, string]>)
+        : []),
     ['方向', frame.direction === 'received' ? '↓ 接收' : '↑ 发送'],
     ...(frame.simulation
         ? ([
@@ -36,7 +40,15 @@ const getMetadata = (frame: FrameRecord): Array<[string, string]> => [
 ];
 
 /** 按需展示选中消息，并允许用户手动关闭详情面板。 */
-export const FrameDetail = ({ copied, formattedPayload, frame, showMetadata, onClose, onCopy }: FrameDetailProps) => {
+export const FrameDetail = ({
+    copied,
+    connection,
+    formattedPayload,
+    frame,
+    showMetadata,
+    onClose,
+    onCopy,
+}: FrameDetailProps) => {
     const [tab, setTab] = useState<'payload' | 'raw'>('payload');
 
     return (
@@ -55,7 +67,7 @@ export const FrameDetail = ({ copied, formattedPayload, frame, showMetadata, onC
                     </button>
                 </div>
                 <dl className="detail-list">
-                    {getMetadata(frame).map(([label, value]) => (
+                    {getMetadata(frame, connection).map(([label, value]) => (
                         <div key={label}>
                             <dt>{label}</dt>
                             <dd className={label === '方向' ? `direction-${frame.direction}` : ''}>{value}</dd>

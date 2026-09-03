@@ -29,6 +29,7 @@ import {
     DEFAULT_CONNECTION_LIST_FILTERS,
     filterConnections,
 } from './connection-list-filter';
+import { parseConnectionListSort, sortConnections } from './connection-list-sort';
 import { FrameDetail } from './components/FrameDetail';
 import { FrameToolbar } from './components/FrameToolbar';
 import { InspectorHeader } from './components/InspectorHeader';
@@ -135,6 +136,9 @@ export const App = () => {
     const [diagnosticTick, setDiagnosticTick] = useState(0);
     const [selectedConnection, setSelectedConnection] = useState<string | null>(null);
     const [connectionFilters, setConnectionFilters] = useState(DEFAULT_CONNECTION_LIST_FILTERS);
+    const [connectionSort, setConnectionSort] = useState(() =>
+        parseConnectionListSort(localStorage.getItem('ycloud-ws-connection-sort-v2')),
+    );
     const [selectedFrameId, setSelectedFrameId] = useState<number | null>(null);
     const [filters, setFilters] = useState<Record<string, ConnectionFilter>>({});
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -163,8 +167,8 @@ export const App = () => {
         [records, runtime.frameBuckets],
     );
     const filteredConnections = useMemo(
-        () => filterConnections(connections, connectionFilters),
-        [connectionFilters, connections],
+        () => sortConnections(filterConnections(connections, connectionFilters), connectionSort),
+        [connectionFilters, connectionSort, connections],
     );
     const connectionDomains = useMemo(() => collectConnectionDomains(connections), [connections]);
     const activeFilter = selectedConnection ? filters[selectedConnection] || DEFAULT_FILTER : DEFAULT_FILTER;
@@ -231,6 +235,10 @@ export const App = () => {
         document.documentElement.dataset.colorMode = resolveDarkMode(value) ? 'dark' : 'light';
         localStorage.setItem('ycloud-ws-color-mode', value);
     }, []);
+
+    useEffect(() => {
+        localStorage.setItem('ycloud-ws-connection-sort-v2', JSON.stringify(connectionSort));
+    }, [connectionSort]);
 
     useEffect(() => {
         const saved = localStorage.getItem('ycloud-ws-theme');
@@ -481,10 +489,12 @@ export const App = () => {
                             domains={connectionDomains}
                             filteredConnections={filteredConnections}
                             filters={connectionFilters}
+                            sort={connectionSort}
                             paused={paused}
                             selectedConnection={selectedConnection}
                             totalFrames={totalFrames}
                             onFiltersChange={setConnectionFilters}
+                            onSortChange={setConnectionSort}
                             onSelect={selectConnection}
                             onToggleAll={() => send({ type: 'set-all-connections-paused', paused: !paused })}
                             onToggleConnection={(connection) =>
@@ -542,6 +552,7 @@ export const App = () => {
                             ) : selectedFrame ? (
                                 <FrameDetail
                                     copied={copied}
+                                    connection={selectedConnectionData}
                                     formattedPayload={formattedPayload}
                                     frame={selectedFrame}
                                     showMetadata={showMetadata}

@@ -31,6 +31,7 @@ export interface FrameRecord {
 export interface ConnectionRecord {
     key: string;
     targetId: string;
+    tabId?: number;
     targetType: WebSocketTargetType;
     targetTitle: string;
     targetUrl: string;
@@ -77,6 +78,7 @@ export interface DiscoveredSocket {
 /** Inspector 展示的捕获目标快照。 */
 export interface CaptureTarget {
     id: string;
+    tabId?: number;
     type: WebSocketTargetType;
     title: string;
     url: string;

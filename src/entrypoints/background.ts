@@ -228,6 +228,7 @@ export default defineBackground(() => {
             key,
             targetId,
             requestId,
+            tabId: target?.tabId,
             targetType: target?.type || 'shared_worker',
             targetTitle: target?.title || targetTypeFallbackTitle(target?.type || 'shared_worker'),
             targetUrl: target?.url || '',
@@ -238,6 +239,7 @@ export default defineBackground(() => {
         };
         const next: ConnectionRecord = {
             ...current,
+            tabId: target?.tabId ?? current.tabId,
             targetType: target?.type || current.targetType || 'shared_worker',
             targetTitle:
                 target?.title || current.targetTitle || targetTypeFallbackTitle(target?.type || 'shared_worker'),
@@ -995,6 +997,7 @@ export default defineBackground(() => {
         url: string,
         debuggee: chrome.debugger.DebuggerSession,
         ownerPageUrl?: string,
+        ownerTabId?: number,
     ): Promise<WebSocketTargetType | null> => {
         await sendDebuggerCommand(debuggee, 'Runtime.enable');
         const scope = await inspectRuntimeScope(debuggee);
@@ -1003,6 +1006,12 @@ export default defineBackground(() => {
         await sendDebuggerCommand(debuggee, 'Network.enable');
         const targetRecord: CaptureTarget = {
             id: targetId,
+            tabId:
+                targetType === 'page'
+                    ? debuggee.tabId
+                    : targetType === 'worker'
+                      ? ownerTabId ?? debuggee.tabId
+                      : undefined,
             type: targetType,
             title: title || targetTypeFallbackTitle(targetType),
             // Dedicated Worker 记录所属页面，便于多个页面存在同源 Worker 时识别来源。
@@ -1084,6 +1093,7 @@ export default defineBackground(() => {
                 childSession,
                 attachedTargets.get(event.targetInfo.openerId || rootTargetId)?.url ||
                     attachedTargets.get(rootTargetId)?.url,
+                parentSession.tabId,
             );
             if (!targetType) {
                 await safeDetach(targetId);
@@ -1125,6 +1135,8 @@ export default defineBackground(() => {
                 target.title || '',
                 target.url || '',
                 debuggee,
+                undefined,
+                target.tabId,
             );
             if (!targetType) {
                 blockedTargetIds.add(target.id);

@@ -3,11 +3,15 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { WebSocketTargetType } from '../../../types/capture';
 import type { ConnectionListFilters, ConnectionListStatus } from '../connection-list-filter';
+import type { ConnectionListSort } from '../connection-list-sort';
+import { ConnectionSort } from './ConnectionSort';
 
 interface ConnectionFiltersProps {
     domains: string[];
     filters: ConnectionListFilters;
+    sort: ConnectionListSort;
     onChange: (filters: ConnectionListFilters) => void;
+    onSortChange: (sort: ConnectionListSort) => void;
 }
 
 const TYPE_OPTIONS: Array<{ value: WebSocketTargetType; label: string }> = [
@@ -28,7 +32,7 @@ const toggleValue = <Value extends string>(values: Value[], value: Value): Value
     values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 
 /** 展示连接搜索入口和紧凑的组合筛选弹层。 */
-export const ConnectionFilters = ({ domains, filters, onChange }: ConnectionFiltersProps) => {
+export const ConnectionFilters = ({ domains, filters, sort, onChange, onSortChange }: ConnectionFiltersProps) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
     const activeDimensionCount =
@@ -68,6 +72,7 @@ export const ConnectionFilters = ({ domains, filters, onChange }: ConnectionFilt
                     value={filters.search}
                 />
             </label>
+            <ConnectionSort sort={sort} onChange={onSortChange} />
             <button
                 aria-expanded={open}
                 aria-label="筛选连接"

@@ -96,6 +96,7 @@ export const buildConnections = (
             result.push({
                 key,
                 targetId: target.id,
+                tabId: target.tabId,
                 targetType: target.type || frames[0]?.targetType || 'shared_worker',
                 targetTitle: target.title || targetTypeLabel(target.type),
                 targetUrl: target.url,

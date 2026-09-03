@@ -2,6 +2,7 @@ import { Activity, CirclePause, CirclePlay, MessageCircle, ShieldCheck } from 'l
 
 import type { ConnectionRecord } from '../../../types/capture';
 import type { ConnectionListFilters } from '../connection-list-filter';
+import type { ConnectionListSort } from '../connection-list-sort';
 import {
     connectionStateLabel,
     displayConnection,
@@ -17,10 +18,12 @@ interface ConnectionSidebarProps {
     domains: string[];
     filteredConnections: ConnectionRecord[];
     filters: ConnectionListFilters;
+    sort: ConnectionListSort;
     paused: boolean;
     selectedConnection: string | null;
     totalFrames: number;
     onFiltersChange: (filters: ConnectionListFilters) => void;
+    onSortChange: (sort: ConnectionListSort) => void;
     onSelect: (key: string) => void;
     onToggleAll: () => void;
     onToggleConnection: (value: ConnectionRecord) => void;
@@ -32,10 +35,12 @@ export const ConnectionSidebar = ({
     domains,
     filteredConnections,
     filters,
+    sort,
     paused,
     selectedConnection,
     totalFrames,
     onFiltersChange,
+    onSortChange,
     onSelect,
     onToggleAll,
     onToggleConnection,
@@ -87,7 +92,13 @@ export const ConnectionSidebar = ({
                         {paused ? <CirclePlay size={17} /> : <CirclePause size={17} />}
                     </button>
                 </div>
-                <ConnectionFilters domains={domains} filters={filters} onChange={onFiltersChange} />
+                <ConnectionFilters
+                    domains={domains}
+                    filters={filters}
+                    sort={sort}
+                    onChange={onFiltersChange}
+                    onSortChange={onSortChange}
+                />
                 <div className="connection-list" role="listbox" aria-label="WebSocket 连接">
                     {filteredConnections.map((connection) => (
                         <button
@@ -107,6 +118,10 @@ export const ConnectionSidebar = ({
                                     <span className={`connection-target-badge target-${connection.targetType}`}>
                                         {targetTypeLabel(connection.targetType)}
                                     </span>
+                                    {(connection.targetType === 'page' || connection.targetType === 'worker') &&
+                                        typeof connection.tabId === 'number' && (
+                                            <span className="connection-tab-id">Tab {connection.tabId}</span>
+                                        )}
                                     <span>
                                         {connection.targetType === 'page' || connection.targetType === 'worker'
                                             ? displayDomain(connection.targetUrl)

@@ -699,7 +699,7 @@ button {
 .connection-filter-bar {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-columns: minmax(0, 1fr) 34px 34px;
     gap: 7px;
     margin-right: 5px;
     margin-bottom: 8px;
@@ -729,7 +729,8 @@ button {
     background: transparent;
     font-size: 10px;
 }
-.connection-filter-trigger {
+.connection-filter-trigger,
+.connection-sort-trigger {
     position: relative;
     display: grid;
     width: 34px;
@@ -742,10 +743,62 @@ button {
     background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
 }
 .connection-filter-trigger:hover,
+.connection-sort-trigger:hover,
+.connection-sort-trigger[aria-expanded='true'],
 .connection-filter-trigger.is-active {
     border-color: var(--accent);
     color: var(--accent-strong);
     background: var(--accent-soft);
+}
+.connection-sort-control {
+    position: relative;
+}
+.connection-sort-popover {
+    position: absolute;
+    z-index: 21;
+    top: 38px;
+    right: 0;
+    display: grid;
+    width: 150px;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    background: color-mix(in srgb, var(--surface-solid) 96%, var(--accent-soft));
+    box-shadow: 0 12px 30px rgba(22, 40, 58, 0.16);
+}
+.connection-sort-popover > strong {
+    font-size: 11px;
+}
+.connection-sort-options {
+    display: grid;
+    gap: 2px;
+}
+.connection-sort-options button,
+.connection-sort-direction {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 6px 7px;
+    border: 0;
+    border-radius: 6px;
+    color: var(--text);
+    background: transparent;
+    font-size: 9px;
+    text-align: left;
+}
+.connection-sort-options button:hover,
+.connection-sort-options button.is-selected {
+    color: var(--accent-strong);
+    background: var(--accent-soft);
+}
+.connection-sort-direction {
+    justify-content: flex-start;
+    border: 1px solid var(--border);
+    color: var(--accent-strong);
 }
 .connection-filter-trigger > span {
     position: absolute;
@@ -934,6 +987,12 @@ button {
     font-weight: 700;
     line-height: 1.35;
 }
+.connection-tab-id {
+    flex: none;
+    color: var(--accent-strong);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
 .connection-copy .connection-time {
     margin-top: 2px;
     color: color-mix(in srgb, var(--muted) 82%, transparent);
@@ -1048,6 +1107,17 @@ button {
 }
 .frame-summary span {
     color: var(--muted);
+}
+.frame-summary .frame-tab-id {
+    flex: none;
+    padding: 2px 6px;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    border-radius: 5px;
+    color: var(--accent-strong);
+    background: var(--accent-soft);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 .search-field {
     display: flex;
