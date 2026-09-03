@@ -17,7 +17,7 @@ export const connectionKey = (targetId: string, requestId: string): string => `$
 
 /** 使用本地时区展示抓包时间，避免跨天记录产生歧义。 */
 export const formatClock = (timestamp: number): string => {
-    return dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss');
+    return dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS');
 };
 
 /** 格式化连接时间，并为缺失值提供业务文案。 */

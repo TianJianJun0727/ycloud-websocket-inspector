@@ -46,11 +46,18 @@ export const FrameToolbar = ({
             <strong title={selectedConnectionData?.url || selectedConnectionData?.targetUrl}>
                 {selectedConnectionData ? displayConnection(selectedConnectionData) : '未选择连接'}
             </strong>
-            <span className="frame-message-count">{selectedFrameCount} 条消息</span>
-            <span className="frame-connection-status">
+            <span
+                className={`frame-connection-status${disconnected || storageError || captureError ? ' is-error' : ''}`}
+            >
                 <span
                     aria-hidden="true"
-                    className={`connection-dot status-${disconnected ? 'closed' : (selectedConnectionData?.status ?? 'closed')}`}
+                    className={`connection-dot status-${
+                        disconnected
+                            ? 'closed'
+                            : storageError || captureError
+                              ? 'error'
+                              : (selectedConnectionData?.status ?? 'closed')
+                    }`}
                 />
                 {disconnected
                     ? '后台已断开'

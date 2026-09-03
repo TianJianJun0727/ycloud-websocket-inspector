@@ -978,17 +978,31 @@ button {
     display: inline-flex;
     flex: none;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     color: var(--muted);
-    white-space: nowrap;
-}
-.frame-message-count {
-    flex: none;
-    color: var(--muted);
+    font-size: 10px;
+    font-weight: 500;
     white-space: nowrap;
 }
 .frame-connection-status .connection-dot {
+    width: 6px;
+    height: 6px;
     flex: none;
+    box-shadow: 0 0 0 3px rgba(51, 177, 99, 0.08);
+}
+.frame-connection-status.is-error {
+    color: #d9473f;
+    font-weight: 600;
+}
+.frame-connection-status .connection-dot.status-error {
+    background: #d9473f;
+    box-shadow: 0 0 0 3px rgba(217, 71, 63, 0.1);
+}
+:root[data-color-mode='dark'] .frame-connection-status.is-error {
+    color: #ff837a;
+}
+:root[data-color-mode='dark'] .frame-connection-status .connection-dot.status-error {
+    background: #ff837a;
 }
 .mini-switch,
 .toggle-control > span {
@@ -1039,7 +1053,7 @@ button {
 .frame-summary {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 9px;
     height: 20px;
     margin-bottom: 8px;
     font-size: 11px;
@@ -1241,7 +1255,7 @@ button {
     box-shadow: inset 3px 0 var(--accent);
 }
 .column-time {
-    width: 150px;
+    width: 188px;
 }
 
 .column-direction {
