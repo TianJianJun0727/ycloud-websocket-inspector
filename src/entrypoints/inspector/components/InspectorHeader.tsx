@@ -8,12 +8,15 @@ interface InspectorHeaderProps {
     heartbeatMessages: string;
     hideHeartbeat: boolean;
     preference: ThemePreference;
+    scanIntervalMs: number;
     season: Season;
+    scanning: boolean;
     showMetadata: boolean;
     onColorModeChange: (mode: ColorMode) => void;
     onHeartbeatMessagesChange: (value: string) => void;
     onHideHeartbeatChange: (selected: boolean) => void;
     onMetadataChange: (selected: boolean) => void;
+    onScanIntervalChange: (intervalMs: number) => void;
     onThemeChange: (theme: ThemePreference) => void;
     onRescan: () => void;
 }
@@ -25,6 +28,17 @@ const COLOR_MODES: Array<{ value: ColorMode; label: string }> = [
     { value: 'dark', label: '暗色' },
 ];
 const COLOR_MODE_LABELS: Record<ColorMode, string> = { light: '亮色', dark: '暗色', system: '跟随系统' };
+const SCAN_INTERVAL_OPTIONS = [
+    { label: '3 秒', value: 3000 },
+    { label: '5 秒', value: 5000 },
+    { label: '10 秒', value: 10000 },
+    { label: '20 秒', value: 20000 },
+    { label: '30 秒', value: 30000 },
+    { label: '1 分钟', value: 60000 },
+    { label: '3 分钟', value: 180000 },
+    { label: '5 分钟', value: 300000 },
+    { label: '10 分钟', value: 600000 },
+];
 
 /** 展示产品标识、当前外观和真实生效的调试器设置。 */
 export const InspectorHeader = ({
@@ -32,12 +46,15 @@ export const InspectorHeader = ({
     heartbeatMessages,
     hideHeartbeat,
     preference,
+    scanIntervalMs,
     season,
+    scanning,
     showMetadata,
     onColorModeChange,
     onHeartbeatMessagesChange,
     onHideHeartbeatChange,
     onMetadataChange,
+    onScanIntervalChange,
     onThemeChange,
     onRescan,
 }: InspectorHeaderProps) => {
@@ -61,6 +78,7 @@ export const InspectorHeader = ({
         onHeartbeatMessagesChange('ping,pong,heartbeat');
         onHideHeartbeatChange(false);
         onMetadataChange(true);
+        onScanIntervalChange(5000);
     };
 
     return (
@@ -97,6 +115,22 @@ export const InspectorHeader = ({
                                 <div>
                                     <strong>显示设置</strong>
                                 </div>
+                            </div>
+                            <div className="settings-section">
+                                <strong className="settings-section-title">扫描设置</strong>
+                                <label htmlFor="scan-interval">扫描周期</label>
+                                <select
+                                    className="heartbeat-input"
+                                    id="scan-interval"
+                                    onChange={(event) => onScanIntervalChange(Number(event.target.value))}
+                                    value={scanIntervalMs}
+                                >
+                                    {SCAN_INTERVAL_OPTIONS.map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                            {option.label}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                             <div className="settings-section">
                                 <label>显示模式</label>
@@ -170,12 +204,14 @@ export const InspectorHeader = ({
                     )}
                 </div>
                 <button
-                    aria-label="重新扫描"
-                    className="icon-button"
-                    data-tooltip="重新扫描"
+                    aria-busy={scanning}
+                    aria-label={scanning ? '正在重新扫描' : '重新扫描'}
+                    className={`icon-button${scanning ? ' is-scanning' : ''}`}
+                    data-tooltip={scanning ? '正在重新扫描' : '重新扫描'}
                     data-tooltip-align="end"
+                    disabled={scanning}
                     onClick={onRescan}
-                    title="重新扫描"
+                    title={scanning ? '正在重新扫描' : '重新扫描'}
                     type="button"
                 >
                     <RefreshCw size={18} />

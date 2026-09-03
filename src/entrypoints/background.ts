@@ -1356,6 +1356,25 @@ export default defineBackground(() => {
             broadcast();
         }
     };
+    /** 手动重新扫描时覆盖刷新目标和枚举目标的完整过程，确保界面持续显示扫描状态。 */
+    const rescanTargets = async (): Promise<void> => {
+        if (scanning || resettingCapture || uiPorts.size === 0) return;
+        scanning = true;
+        broadcast();
+        blockedTargetIds.clear();
+        occupiedTargetIds.clear();
+        try {
+            await refreshAttachedTargets();
+        } catch (error: unknown) {
+            scanning = false;
+            addDiagnostic('error', 'capture', error instanceof Error ? error.message : '刷新调试目标失败');
+            broadcast();
+            return;
+        }
+        scanning = false;
+        await scanTargets();
+    };
+    let targetScanIntervalMs = TARGET_SCAN_INTERVAL_MS;
     const startScanning = () => {
         if (detachTimer) {
             clearTimeout(detachTimer);
@@ -1363,7 +1382,7 @@ export default defineBackground(() => {
         }
         if (!scanTimer) {
             initialScanning = true;
-            scanTimer = setInterval(scanTargets, TARGET_SCAN_INTERVAL_MS);
+            scanTimer = setInterval(scanTargets, targetScanIntervalMs);
         }
         scanTargets();
     };
@@ -1683,10 +1702,14 @@ export default defineBackground(() => {
                     }
                 }
                 broadcast();
+            } else if (command.type === 'set-scan-interval') {
+                targetScanIntervalMs = Math.min(600000, Math.max(1000, Math.round(command.intervalMs)));
+                if (scanTimer) {
+                    clearInterval(scanTimer);
+                    scanTimer = setInterval(scanTargets, targetScanIntervalMs);
+                }
             } else if (command.type === 'rescan') {
-                blockedTargetIds.clear();
-                occupiedTargetIds.clear();
-                void refreshAttachedTargets().then(scanTargets);
+                void rescanTargets();
             } else if (command.type === 'simulate') {
                 registerSimulationSend(command);
                 void withTimeout(

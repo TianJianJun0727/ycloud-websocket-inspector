@@ -114,6 +114,7 @@ export interface SimulationResult {
 /** Inspector 可发送给后台的命令。 */
 export type InspectorCommand =
     | { type: 'rescan' }
+    | { type: 'set-scan-interval'; intervalMs: number }
     | { type: 'clear' }
     | { type: 'clear-connection'; targetId: string; requestId: string }
     | { type: 'set-connection-paused'; targetId: string; requestId: string; paused: boolean }

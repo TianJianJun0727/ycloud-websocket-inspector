@@ -65,6 +65,13 @@ const INITIAL_RUNTIME: RuntimeState = {
 };
 const DEFAULT_FILTER: ConnectionFilter = { direction: 'all', search: '' };
 const DEFAULT_HEARTBEAT_MESSAGES = 'ping,pong,heartbeat';
+const DEFAULT_SCAN_INTERVAL_MS = 5000;
+const savedScanIntervalMs = Number(localStorage.getItem('ycloud-ws-scan-interval'));
+const INITIAL_SCAN_INTERVAL_MS = [3000, 5000, 10000, 20000, 30000, 60000, 180000, 300000, 600000].includes(
+    savedScanIntervalMs,
+)
+    ? savedScanIntervalMs
+    : DEFAULT_SCAN_INTERVAL_MS;
 
 /** 将 Chrome Runtime Port 收敛为 Inspector 与演示环境共用的通信接口。 */
 const createRuntimePort = (): InspectorPort | null => {
@@ -133,6 +140,7 @@ export const App = () => {
     const simulationTimeoutRef = useRef<number | null>(null);
     const activeSimulationIdRef = useRef<string | null>(null);
     const [runtime, setRuntime] = useState<RuntimeState>(INITIAL_RUNTIME);
+    const [scanIntervalMs, setScanIntervalMs] = useState(INITIAL_SCAN_INTERVAL_MS);
     const [diagnosticTick, setDiagnosticTick] = useState(0);
     const [selectedConnection, setSelectedConnection] = useState<string | null>(null);
     const [connectionFilters, setConnectionFilters] = useState(DEFAULT_CONNECTION_LIST_FILTERS);
@@ -266,6 +274,7 @@ export const App = () => {
             setRuntime((current) => ({ ...current, scanning: false, disconnected: true }));
             return;
         }
+        port.postMessage({ type: 'set-scan-interval', intervalMs: INITIAL_SCAN_INTERVAL_MS });
         port.onMessage.addListener((message) => {
             if (message.type === 'simulation-result' && message.simulationResult) {
                 if (message.simulationResult.operationId !== activeSimulationIdRef.current) return;
@@ -468,6 +477,13 @@ export const App = () => {
 
     const sidePanelOpen = simulationOpen || Boolean(selectedFrame);
 
+    /** 保存扫描周期，并立即通知后台重建周期扫描定时器。 */
+    const updateScanInterval = (intervalMs: number): void => {
+        setScanIntervalMs(intervalMs);
+        localStorage.setItem('ycloud-ws-scan-interval', String(intervalMs));
+        send({ type: 'set-scan-interval', intervalMs });
+    };
+
     return (
         <div className="inspector-shell">
             <InspectorHeader
@@ -475,12 +491,15 @@ export const App = () => {
                 heartbeatMessages={heartbeatMessagesText}
                 hideHeartbeat={hideHeartbeat}
                 preference={themePreference}
+                scanIntervalMs={scanIntervalMs}
                 season={season}
+                scanning={runtime.scanning}
                 showMetadata={showMetadata}
                 onColorModeChange={chooseColorMode}
                 onHeartbeatMessagesChange={setHeartbeatMessagesText}
                 onHideHeartbeatChange={setHideHeartbeat}
                 onMetadataChange={setShowMetadata}
+                onScanIntervalChange={updateScanInterval}
                 onThemeChange={chooseTheme}
                 onRescan={() => send({ type: 'rescan' })}
             />
