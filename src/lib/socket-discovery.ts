@@ -58,6 +58,9 @@ export const reconcileRuntimeSockets = (
                     closedAt: null,
                     status: runtimeSocketStatus(discovered[index]?.readyState ?? 1),
                     urlSource: 'runtime',
+                    runtimeId: runtimeId || previous?.socket.runtimeId,
+                    executionContextId:
+                        discovered[index]?.executionContextId ?? previous?.socket.executionContextId,
                 },
             });
         }

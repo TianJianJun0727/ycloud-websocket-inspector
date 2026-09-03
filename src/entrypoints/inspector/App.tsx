@@ -164,6 +164,7 @@ export const App = () => {
     const [simulationOpen, setSimulationOpen] = useState(false);
     const [simulationPending, setSimulationPending] = useState(false);
     const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
+    const [simulationSessionId, setSimulationSessionId] = useState(0);
 
     const records = useMemo(
         () => resolveConnectionRecords(runtime.connections, buildConnections(runtime.targets, runtime.frameBuckets)),
@@ -407,12 +408,21 @@ export const App = () => {
         setSelectedFrameId(id);
     };
 
-    /** 切换连接时关闭旧连接的消息详情。 */
+    /** 清理当前模拟操作，避免关闭或切换连接后保留旧的执行状态。 */
+    const resetSimulation = (): void => {
+        if (simulationTimeoutRef.current !== null) window.clearTimeout(simulationTimeoutRef.current);
+        simulationTimeoutRef.current = null;
+        activeSimulationIdRef.current = null;
+        setSimulationPending(false);
+        setSimulationResult(null);
+    };
+
+    /** 切换连接时关闭旧连接的消息详情和模拟面板。 */
     const selectConnection = (key: string): void => {
+        resetSimulation();
         setSelectedConnection(key);
         setSelectedFrameId(null);
         setSimulationOpen(false);
-        setSimulationResult(null);
     };
 
     /** 清空当前连接的全部已捕获帧。 */
@@ -427,9 +437,16 @@ export const App = () => {
 
     /** 打开模拟面板，并关闭消息详情以复用右侧可调宽度区域。 */
     const openSimulator = (): void => {
+        resetSimulation();
+        setSimulationSessionId((current) => current + 1);
         setSelectedFrameId(null);
-        setSimulationResult(null);
         setSimulationOpen(true);
+    };
+
+    /** 关闭模拟面板并取消等待中的界面状态。 */
+    const closeSimulator = (): void => {
+        resetSimulation();
+        setSimulationOpen(false);
     };
 
     /** 将模拟操作提交给当前连接所在的页面或 Worker 调试目标。 */
@@ -571,10 +588,11 @@ export const App = () => {
                         <Panel defaultSize="380px" maxSize="560px" minSize="300px">
                             {simulationOpen && selectedConnectionData ? (
                                 <SimulationPanel
+                                    key={`${selectedConnectionData.key}-${simulationSessionId}`}
                                     connection={selectedConnectionData}
                                     pending={simulationPending}
                                     result={simulationResult}
-                                    onClose={() => setSimulationOpen(false)}
+                                    onClose={closeSimulator}
                                     onExecute={executeSimulation}
                                 />
                             ) : selectedFrame ? (

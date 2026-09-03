@@ -35,9 +35,17 @@ export const SimulationPanel = ({ connection, pending, result, onClose, onExecut
     const [systemEvent, setSystemEvent] = useState<SystemEvent>('error');
     const [closeCode, setCloseCode] = useState(1000);
     const [closeReason, setCloseReason] = useState('模拟连接关闭');
+    const [validationError, setValidationError] = useState<string | null>(null);
+    const [resultVisible, setResultVisible] = useState(true);
 
     /** 校验输入并向当前连接提交模拟操作。 */
     const submit = (): void => {
+        if (tab !== 'system' && payload.length === 0) {
+            setValidationError('请输入需要发送或模拟接收的消息内容');
+            setResultVisible(false);
+            return;
+        }
+        setValidationError(null);
         const action: SimulationAction = tab === 'system' ? systemEvent : tab;
         onExecute({ action, payload, closeCode, closeReason });
     };
@@ -45,14 +53,18 @@ export const SimulationPanel = ({ connection, pending, result, onClose, onExecut
     /** 切换面板页签并清理上一次执行反馈。 */
     const chooseTab = (value: SimulationTab): void => {
         setTab(value);
+        setValidationError(null);
+        setResultVisible(false);
     };
 
     const requiresPayload = tab !== 'system';
 
-    /** 真实发送成功后清空输入框，避免用户误触造成重复发送。 */
+    /** 接收新的执行结果并清理当前输入校验，发送与接收内容均继续保留。 */
     useEffect(() => {
-        if (tab === 'send' && result?.success) setPayload('');
-    }, [result, tab]);
+        if (!result) return;
+        setResultVisible(true);
+        setValidationError(null);
+    }, [result]);
 
     return (
         <aside className="frame-detail simulation-panel">
@@ -137,7 +149,11 @@ export const SimulationPanel = ({ connection, pending, result, onClose, onExecut
                         <label className="simulation-field simulation-payload">
                             <span>消息内容</span>
                             <textarea
-                                onChange={(event) => setPayload(event.target.value)}
+                                onChange={(event) => {
+                                    setPayload(event.target.value);
+                                    setValidationError(null);
+                                    setResultVisible(false);
+                                }}
                                 placeholder={
                                     tab === 'send'
                                         ? '输入发送到服务器的文本或 JSON'
@@ -158,7 +174,13 @@ export const SimulationPanel = ({ connection, pending, result, onClose, onExecut
                         </p>
                     </div>
 
-                    {result && (
+                    {validationError && (
+                        <p className="simulation-result is-error" role="alert">
+                            {validationError}
+                        </p>
+                    )}
+
+                    {resultVisible && result && (
                         <p className={`simulation-result ${result.success ? 'is-success' : 'is-error'}`} role="status">
                             {result.message}
                         </p>
@@ -166,7 +188,7 @@ export const SimulationPanel = ({ connection, pending, result, onClose, onExecut
 
                     <button
                         className="simulation-submit"
-                        disabled={pending || (requiresPayload && payload.length === 0)}
+                        disabled={pending}
                         onClick={submit}
                         type="button"
                     >

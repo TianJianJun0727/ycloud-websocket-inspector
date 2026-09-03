@@ -67,6 +67,8 @@ export interface SocketRecord {
     closedAt: number | null;
     status: 'connecting' | 'open' | 'closed';
     urlSource?: 'runtime';
+    runtimeId?: string;
+    executionContextId?: number;
 }
 
 /** 通过目标运行时扫描发现的 WebSocket。 */
@@ -75,6 +77,7 @@ export interface DiscoveredSocket {
     readyState: number;
     protocol?: string;
     runtimeId?: string;
+    executionContextId?: number;
 }
 
 /** Inspector 展示的捕获目标快照。 */
