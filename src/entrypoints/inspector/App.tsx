@@ -132,6 +132,7 @@ export const App = () => {
     const simulationTimeoutRef = useRef<number | null>(null);
     const activeSimulationIdRef = useRef<string | null>(null);
     const [runtime, setRuntime] = useState<RuntimeState>(INITIAL_RUNTIME);
+    const [diagnosticTick, setDiagnosticTick] = useState(0);
     const [selectedConnection, setSelectedConnection] = useState<string | null>(null);
     const [connectionFilters, setConnectionFilters] = useState(DEFAULT_CONNECTION_LIST_FILTERS);
     const [selectedFrameId, setSelectedFrameId] = useState<number | null>(null);
@@ -200,7 +201,11 @@ export const App = () => {
     const paused = activeConnections.some(({ capturePaused }) => capturePaused);
     const storageError = runtime.diagnostics.find(({ level, source }) => level === 'error' && source === 'storage');
     const captureError = runtime.diagnostics.find(
-        (item) => item.level === 'error' && item.source !== 'storage' && isActiveDiagnostic(item),
+        (item) =>
+            item.level === 'error' &&
+            item.source !== 'storage' &&
+            isActiveDiagnostic(item) &&
+            (!item.targetId || item.targetId === selectedConnectionData?.targetId),
     );
     const totalFrames = Object.values(runtime.frameBuckets).reduce((sum, bucket) => sum + bucket.length, 0);
     const parsedPayload = selectedFrame ? parseJsonPayload(selectedFrame.payloadData, selectedFrame.opcode) : null;
@@ -276,6 +281,18 @@ export const App = () => {
             portRef.current = null;
         };
     }, [chooseColorMode, chooseTheme]);
+
+    useEffect(() => {
+        const now = Date.now();
+        const nextExpiry = runtime.diagnostics.reduce<number | null>((nearest, diagnostic) => {
+            if (!diagnostic.expiresAt || diagnostic.expiresAt <= now) return nearest;
+            return nearest === null ? diagnostic.expiresAt : Math.min(nearest, diagnostic.expiresAt);
+        }, null);
+        if (nextExpiry === null) return;
+        /** 在最近一条瞬时诊断到期后触发重渲染，避免状态依赖后续后台消息刷新。 */
+        const timer = window.setTimeout(() => setDiagnosticTick((value) => value + 1), nextExpiry - now + 1);
+        return () => window.clearTimeout(timer);
+    }, [diagnosticTick, runtime.diagnostics]);
 
     useEffect(() => {
         if (colorMode !== 'system') return;
