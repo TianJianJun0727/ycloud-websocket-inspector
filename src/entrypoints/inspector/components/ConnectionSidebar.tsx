@@ -1,13 +1,26 @@
 import { Activity, CirclePause, CirclePlay, MessageCircle, ShieldCheck } from 'lucide-react';
 
 import type { ConnectionRecord } from '../../../types/capture';
-import { connectionStateLabel, displayConnection, formatConnectionTime, targetTypeLabel } from '../inspector-helpers';
+import type { ConnectionListFilters } from '../connection-list-filter';
+import {
+    connectionStateLabel,
+    displayConnection,
+    displayDomain,
+    displayUrl,
+    formatConnectionTime,
+    targetTypeLabel,
+} from '../inspector-helpers';
+import { ConnectionFilters } from './ConnectionFilters';
 
 interface ConnectionSidebarProps {
     connections: ConnectionRecord[];
+    domains: string[];
+    filteredConnections: ConnectionRecord[];
+    filters: ConnectionListFilters;
     paused: boolean;
     selectedConnection: string | null;
     totalFrames: number;
+    onFiltersChange: (filters: ConnectionListFilters) => void;
     onSelect: (key: string) => void;
     onToggleAll: () => void;
     onToggleConnection: (value: ConnectionRecord) => void;
@@ -16,9 +29,13 @@ interface ConnectionSidebarProps {
 /** 展示整体监听状态、提示信息和可切换的连接列表。 */
 export const ConnectionSidebar = ({
     connections,
+    domains,
+    filteredConnections,
+    filters,
     paused,
     selectedConnection,
     totalFrames,
+    onFiltersChange,
     onSelect,
     onToggleAll,
     onToggleConnection,
@@ -53,7 +70,12 @@ export const ConnectionSidebar = ({
             <section className="connection-list-section">
                 <div className="connection-list-heading">
                     <span>
-                        连接列表 <small>{connections.length}</small>
+                        连接列表{' '}
+                        <small>
+                            {filteredConnections.length === connections.length
+                                ? connections.length
+                                : `${filteredConnections.length} / ${connections.length}`}
+                        </small>
                     </span>
                     <button
                         className="bare-button"
@@ -65,8 +87,9 @@ export const ConnectionSidebar = ({
                         {paused ? <CirclePlay size={17} /> : <CirclePause size={17} />}
                     </button>
                 </div>
+                <ConnectionFilters domains={domains} filters={filters} onChange={onFiltersChange} />
                 <div className="connection-list" role="listbox" aria-label="WebSocket 连接">
-                    {connections.map((connection) => (
+                    {filteredConnections.map((connection) => (
                         <button
                             aria-selected={selectedConnection === connection.key}
                             className={`connection-item${selectedConnection === connection.key ? ' is-selected' : ''}`}
@@ -80,13 +103,18 @@ export const ConnectionSidebar = ({
                                 <strong title={connection.url || connection.targetUrl}>
                                     {displayConnection(connection)}
                                 </strong>
-                                <small className="connection-status-line">
+                                <small className="connection-owner-line" title={connection.targetUrl}>
                                     <span className={`connection-target-badge target-${connection.targetType}`}>
                                         {targetTypeLabel(connection.targetType)}
                                     </span>
                                     <span>
-                                        {connection.frameCount} 条 · {connectionStateLabel(connection)}
+                                        {connection.targetType === 'page'
+                                            ? displayDomain(connection.targetUrl)
+                                            : displayUrl(connection.targetUrl, '未知运行环境')}
                                     </span>
+                                </small>
+                                <small className="connection-status-line">
+                                    {connection.frameCount} 条 · {connectionStateLabel(connection)}
                                 </small>
                                 <small className="connection-time">{formatConnectionRange(connection)}</small>
                             </span>
@@ -108,6 +136,9 @@ export const ConnectionSidebar = ({
                         </button>
                     ))}
                     {!connections.length && <p className="empty-copy">正在发现 WebSocket 连接…</p>}
+                    {Boolean(connections.length) && !filteredConnections.length && (
+                        <p className="empty-copy">没有符合条件的连接</p>
+                    )}
                 </div>
             </section>
             <section className="side-card notice-card">

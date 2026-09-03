@@ -24,6 +24,11 @@ import type {
     SimulationResult,
 } from '../../types/capture';
 import { ConnectionSidebar } from './components/ConnectionSidebar';
+import {
+    collectConnectionDomains,
+    DEFAULT_CONNECTION_LIST_FILTERS,
+    filterConnections,
+} from './connection-list-filter';
 import { FrameDetail } from './components/FrameDetail';
 import { FrameToolbar } from './components/FrameToolbar';
 import { InspectorHeader } from './components/InspectorHeader';
@@ -128,6 +133,7 @@ export const App = () => {
     const activeSimulationIdRef = useRef<string | null>(null);
     const [runtime, setRuntime] = useState<RuntimeState>(INITIAL_RUNTIME);
     const [selectedConnection, setSelectedConnection] = useState<string | null>(null);
+    const [connectionFilters, setConnectionFilters] = useState(DEFAULT_CONNECTION_LIST_FILTERS);
     const [selectedFrameId, setSelectedFrameId] = useState<number | null>(null);
     const [filters, setFilters] = useState<Record<string, ConnectionFilter>>({});
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -155,6 +161,11 @@ export const App = () => {
             })),
         [records, runtime.frameBuckets],
     );
+    const filteredConnections = useMemo(
+        () => filterConnections(connections, connectionFilters),
+        [connectionFilters, connections],
+    );
+    const connectionDomains = useMemo(() => collectConnectionDomains(connections), [connections]);
     const activeFilter = selectedConnection ? filters[selectedConnection] || DEFAULT_FILTER : DEFAULT_FILTER;
     const selectedFrames = selectedConnection ? runtime.frameBuckets[selectedConnection] || [] : [];
     const heartbeatMessages = useMemo(
@@ -450,9 +461,13 @@ export const App = () => {
                     <Panel defaultSize="300px" maxSize="420px" minSize="250px">
                         <ConnectionSidebar
                             connections={connections}
+                            domains={connectionDomains}
+                            filteredConnections={filteredConnections}
+                            filters={connectionFilters}
                             paused={paused}
                             selectedConnection={selectedConnection}
                             totalFrames={totalFrames}
+                            onFiltersChange={setConnectionFilters}
                             onSelect={selectConnection}
                             onToggleAll={() => send({ type: 'set-all-connections-paused', paused: !paused })}
                             onToggleConnection={(connection) =>

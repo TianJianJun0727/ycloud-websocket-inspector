@@ -35,6 +35,16 @@ export const displayUrl = (url: string, fallback = '未知 URL'): string => {
     }
 };
 
+/** 仅展示 URL 域名，用于标识页面类型连接的所属站点。 */
+export const displayDomain = (url: string, fallback = '未知域名'): string => {
+    if (!url) return fallback;
+    try {
+        return new URL(url).host;
+    } catch {
+        return url;
+    }
+};
+
 /** 将连接来源转换为连接列表和详情共用的短标签。 */
 export const targetTypeLabel = (targetType: WebSocketTargetType | undefined): string => {
     if (targetType === 'page') return '页面';

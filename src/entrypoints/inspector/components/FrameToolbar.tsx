@@ -120,7 +120,7 @@ export const FrameToolbar = ({
                 aria-label="清空当前连接"
                 className="icon-button compact"
                 data-tooltip="删除消息"
-                disabled={!selectedConnection}
+                disabled={!selectedConnection || selectedFrameCount === 0}
                 onClick={onClear}
                 title="清空当前连接"
                 type="button"
@@ -131,7 +131,7 @@ export const FrameToolbar = ({
                 aria-label="导出当前连接"
                 className="icon-button compact"
                 data-tooltip="导出消息"
-                disabled={!selectedConnection}
+                disabled={!selectedConnection || selectedFrameCount === 0}
                 onClick={onExport}
                 title="导出当前连接"
                 type="button"
