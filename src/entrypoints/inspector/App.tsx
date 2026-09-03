@@ -472,7 +472,6 @@ export const App = () => {
                                 activeFilter={activeFilter}
                                 captureError={captureError}
                                 disconnected={runtime.disconnected}
-                                filteredFrameCount={filteredFrames.length}
                                 followLatest={followLatest}
                                 selectedConnection={selectedConnection}
                                 selectedConnectionData={selectedConnectionData}

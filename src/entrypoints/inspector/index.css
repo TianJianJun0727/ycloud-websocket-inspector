@@ -70,6 +70,34 @@
 }
 * {
     box-sizing: border-box;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--accent) 54%, transparent) transparent;
+}
+*::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+*::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+}
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+    min-height: 32px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 54%, transparent);
+    background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--accent) 78%, var(--accent-strong));
+    background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+    background: transparent;
 }
 body {
     margin: 0;
@@ -473,7 +501,15 @@ button {
 }
 .workspace {
     width: 100%;
+    max-width: 100%;
     height: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+}
+.workspace > [data-panel] {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
 }
 .panel-resizer {
     position: relative;
@@ -646,9 +682,11 @@ button {
 }
 .connection-list-section {
     display: flex;
+    min-width: 0;
     min-height: 0;
     flex: 1;
     flex-direction: column;
+    overflow: hidden;
 }
 .connection-list-heading {
     padding: 3px 2px 7px;
@@ -660,16 +698,21 @@ button {
 }
 .connection-list {
     display: flex;
+    width: 100%;
     min-height: 0;
     flex: 1;
     flex-direction: column;
     gap: 5px;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
 }
 .connection-item {
     display: grid;
     grid-template-columns: 8px minmax(0, 1fr) 29px;
     width: 100%;
+    min-width: 0;
+    max-width: 100%;
     align-items: center;
     gap: 10px;
     min-height: 66px;
@@ -758,6 +801,22 @@ button {
     background: #e9a226;
     box-shadow: 0 0 0 4px rgba(233, 162, 38, 0.1);
 }
+.frame-connection-status {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    white-space: nowrap;
+}
+.frame-message-count {
+    flex: none;
+    color: var(--muted);
+    white-space: nowrap;
+}
+.frame-connection-status .connection-dot {
+    flex: none;
+}
 .mini-switch,
 .toggle-control > span {
     position: relative;
@@ -792,7 +851,11 @@ button {
 }
 .messages-panel {
     display: flex;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     flex-direction: column;
+    overflow: hidden;
     background: color-mix(in srgb, var(--surface-solid) 42%, transparent);
 }
 .frame-toolbar {
@@ -830,6 +893,9 @@ button {
 }
 .toolbar-controls {
     display: flex;
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
     align-items: flex-start;
     gap: 8px;
 }
@@ -853,6 +919,15 @@ button {
 .toolbar-controls button {
     flex: 0 0 auto;
     white-space: nowrap;
+}
+.toolbar-controls .icon-button[data-tooltip]::after {
+    right: 0;
+    left: auto;
+    transform: translateY(-3px);
+}
+.toolbar-controls .icon-button[data-tooltip]:hover::after,
+.toolbar-controls .icon-button[data-tooltip]:focus-visible::after {
+    transform: translateY(0);
 }
 .search-field:focus-within {
     border-color: var(--accent);
@@ -939,7 +1014,9 @@ button {
     position: relative;
     min-height: 0;
     flex: 1;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
 }
 .frame-table {
     width: 100%;
@@ -1048,7 +1125,9 @@ button {
 .frame-detail {
     display: flex;
     flex-direction: column;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
 }
 .detail-section,
 .payload-section {
@@ -1126,7 +1205,8 @@ button {
     max-height: 240px;
     margin: 10px 0 0;
     padding: 10px;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
     border: 1px solid var(--border);
     border-radius: 7px;
     color: #263b55;
@@ -1202,7 +1282,8 @@ button {
 }
 .simulation-panel {
     min-width: 0;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 .simulation-field > span {
     display: block;

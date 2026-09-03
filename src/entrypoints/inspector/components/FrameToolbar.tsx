@@ -7,7 +7,6 @@ interface FrameToolbarProps {
     activeFilter: ConnectionFilter;
     captureError?: CaptureDiagnostic;
     disconnected: boolean;
-    filteredFrameCount: number;
     followLatest: boolean;
     selectedConnection: string | null;
     selectedConnectionData?: ConnectionRecord;
@@ -31,7 +30,6 @@ export const FrameToolbar = ({
     activeFilter,
     captureError,
     disconnected,
-    filteredFrameCount,
     followLatest,
     selectedConnection,
     selectedConnectionData,
@@ -48,14 +46,25 @@ export const FrameToolbar = ({
             <strong title={selectedConnectionData?.url || selectedConnectionData?.targetUrl}>
                 {selectedConnectionData ? displayConnection(selectedConnectionData) : '未选择连接'}
             </strong>
-            <span>
-                {filteredFrameCount === selectedFrameCount
-                    ? selectedFrameCount
-                    : `${filteredFrameCount} / ${selectedFrameCount}`}{' '}
-                条消息
-            </span>
-            <span>
-                {disconnected ? '后台已断开' : storageError ? '存储异常' : captureError ? '监听异常' : '实时记录中'}
+            <span className="frame-message-count">{selectedFrameCount} 条消息</span>
+            <span className="frame-connection-status">
+                <span
+                    aria-hidden="true"
+                    className={`connection-dot status-${disconnected ? 'closed' : (selectedConnectionData?.status ?? 'closed')}`}
+                />
+                {disconnected
+                    ? '后台已断开'
+                    : storageError
+                      ? '存储异常'
+                      : captureError
+                        ? '监听异常'
+                        : selectedConnectionData?.status === 'connecting'
+                          ? '连接中'
+                          : selectedConnectionData?.status === 'closed'
+                            ? '已关闭'
+                            : selectedConnectionData
+                              ? '记录中'
+                              : '未连接'}
             </span>
         </div>
         <div className="toolbar-controls">
