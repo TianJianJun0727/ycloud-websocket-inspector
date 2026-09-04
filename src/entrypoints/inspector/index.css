@@ -1908,3 +1908,169 @@ button {
     color: var(--text);
     background: color-mix(in srgb, var(--dark-base) 40%, transparent);
 }
+
+/* Dark mode uses one seasonal, translucent elevation system. */
+:root[data-color-mode='dark'] {
+    --dark-layer-canvas: color-mix(in srgb, var(--dark-base) 10%, transparent);
+    --dark-layer-soft: color-mix(in srgb, var(--dark-base) 32%, transparent);
+    --dark-layer-control: color-mix(in srgb, var(--dark-base) 52%, transparent);
+    --dark-layer-panel: color-mix(in srgb, var(--dark-base) 58%, transparent);
+    --dark-layer-elevated: color-mix(in srgb, var(--dark-base) 74%, transparent);
+    --dark-layer-hover: color-mix(in srgb, var(--accent) 12%, var(--dark-base));
+    --dark-layer-selected: color-mix(in srgb, var(--accent) 18%, var(--dark-base));
+    --dark-border-soft: color-mix(in srgb, var(--accent) 18%, var(--border));
+    --dark-border-strong: color-mix(in srgb, var(--accent) 46%, var(--border));
+    --dark-shadow: color-mix(in srgb, var(--dark-base) 58%, transparent);
+}
+
+:root[data-color-mode='dark'] .overview-card,
+:root[data-color-mode='dark'] .notice-card {
+    border-color: var(--dark-border-soft);
+    color: var(--text);
+    background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--accent) 8%, var(--dark-layer-soft)),
+        var(--dark-layer-soft)
+    );
+    box-shadow: 0 10px 28px var(--dark-shadow);
+}
+
+:root[data-color-mode='dark'] .connection-search-field,
+:root[data-color-mode='dark'] .search-field,
+:root[data-color-mode='dark'] .simulation-field input,
+:root[data-color-mode='dark'] .simulation-field select,
+:root[data-color-mode='dark'] .simulation-field textarea {
+    border-color: var(--dark-border-soft);
+    color: var(--text);
+    background: var(--dark-layer-control);
+}
+
+:root[data-color-mode='dark'] .connection-search-field:focus-within,
+:root[data-color-mode='dark'] .search-field:focus-within,
+:root[data-color-mode='dark'] .simulation-field input:focus,
+:root[data-color-mode='dark'] .simulation-field select:focus,
+:root[data-color-mode='dark'] .simulation-field textarea:focus {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 7%, var(--dark-layer-control));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+:root[data-color-mode='dark'] .settings-popover,
+:root[data-color-mode='dark'] .connection-sort-popover,
+:root[data-color-mode='dark'] .connection-filter-popover {
+    border-color: var(--dark-border-strong);
+    color: var(--text);
+    background: var(--dark-layer-elevated);
+    box-shadow: 0 18px 48px color-mix(in srgb, var(--dark-base) 78%, transparent);
+    backdrop-filter: blur(20px) saturate(1.08);
+}
+
+:root[data-color-mode='dark'] .icon-button,
+:root[data-color-mode='dark'] .connection-sort-trigger,
+:root[data-color-mode='dark'] .connection-filter-trigger,
+:root[data-color-mode='dark'] .reset-settings,
+:root[data-color-mode='dark'] .color-mode-control button:not(.is-active),
+:root[data-color-mode='dark'] .season-mode-control button:not(.is-active),
+:root[data-color-mode='dark'] .segmented-control button:not(.is-active),
+:root[data-color-mode='dark'] .connection-filter-options button,
+:root[data-color-mode='dark'] .connection-domain-options button {
+    border-color: var(--dark-border-soft);
+    color: var(--muted);
+    background: var(--dark-layer-control);
+}
+
+:root[data-color-mode='dark'] .icon-button:hover:not(:disabled),
+:root[data-color-mode='dark'] .connection-sort-trigger:hover,
+:root[data-color-mode='dark'] .connection-filter-trigger:hover,
+:root[data-color-mode='dark'] .reset-settings:hover,
+:root[data-color-mode='dark'] .color-mode-control button:hover:not(.is-active),
+:root[data-color-mode='dark'] .season-mode-control button:hover:not(.is-active),
+:root[data-color-mode='dark'] .segmented-control button:hover:not(.is-active),
+:root[data-color-mode='dark'] .connection-sort-options button:hover,
+:root[data-color-mode='dark'] .connection-filter-options button:hover,
+:root[data-color-mode='dark'] .connection-domain-options button:hover {
+    border-color: var(--dark-border-strong);
+    color: var(--text);
+    background: var(--dark-layer-hover);
+}
+
+:root[data-color-mode='dark'] .icon-button:disabled,
+:root[data-color-mode='dark'] .bare-button:disabled,
+:root[data-color-mode='dark'] .simulation-submit:disabled {
+    border-color: color-mix(in srgb, var(--border) 62%, transparent);
+    color: color-mix(in srgb, var(--muted) 58%, transparent);
+    background: color-mix(in srgb, var(--dark-base) 30%, transparent);
+    opacity: 0.72;
+}
+
+:root[data-color-mode='dark'] .connection-item {
+    background: var(--dark-layer-canvas);
+}
+
+:root[data-color-mode='dark'] .connection-item:hover {
+    border-color: var(--dark-border-soft);
+    background: var(--dark-layer-hover);
+}
+
+:root[data-color-mode='dark'] .connection-item.is-selected,
+:root[data-color-mode='dark'] .connection-item[aria-selected='true'] {
+    border-color: var(--dark-border-strong);
+    background: linear-gradient(
+        105deg,
+        var(--dark-layer-selected),
+        color-mix(in srgb, var(--accent) 7%, var(--dark-layer-soft))
+    );
+    box-shadow:
+        inset 3px 0 0 var(--accent),
+        0 8px 22px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+:root[data-color-mode='dark'] .messages-panel {
+    background: var(--dark-layer-canvas);
+}
+
+:root[data-color-mode='dark'] .frame-table thead {
+    background: var(--dark-layer-control);
+}
+
+:root[data-color-mode='dark'] .frame-table tbody tr:hover {
+    background: color-mix(in srgb, var(--accent) 10%, var(--dark-layer-soft));
+}
+
+:root[data-color-mode='dark'] .frame-table tbody tr[aria-selected='true'],
+:root[data-color-mode='dark'] .frame-table tbody tr[aria-selected='true']:hover {
+    background: var(--dark-layer-selected);
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+:root[data-color-mode='dark'] .simulation-panel,
+:root[data-color-mode='dark'] .message-detail {
+    border-color: var(--dark-border-soft);
+    background: var(--dark-layer-panel);
+    box-shadow: -14px 0 34px var(--dark-shadow);
+    backdrop-filter: blur(14px) saturate(1.06);
+}
+
+:root[data-color-mode='dark'] .simulation-panel textarea,
+:root[data-color-mode='dark'] .payload-section pre {
+    border-color: var(--dark-border-soft);
+    color: var(--text);
+    background: var(--dark-layer-control);
+}
+
+:root[data-color-mode='dark'] .simulation-notice {
+    border-color: color-mix(in srgb, #f6c85f 44%, var(--border));
+    color: #ffdda3;
+    background: color-mix(in srgb, #f6c85f 12%, var(--dark-layer-soft));
+}
+
+:root[data-color-mode='dark'] .simulation-submit:not(:disabled) {
+    border-color: color-mix(in srgb, var(--accent) 72%, white);
+    color: #fff;
+    background: var(--accent);
+    box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+:root[data-color-mode='dark'] .simulation-submit:not(:disabled):hover {
+    background: color-mix(in srgb, var(--accent) 86%, white);
+}
