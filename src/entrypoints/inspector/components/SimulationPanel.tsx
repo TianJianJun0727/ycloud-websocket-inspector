@@ -199,31 +199,33 @@ export const SimulationPanel = ({ connection, pending, result, onClose, onExecut
                 <div className="simulation-form">
                     {tab === 'system' ? (
                         <>
-                            <div className="detail-tabs simulation-scope-tabs" role="tablist" aria-label="事件来源">
-                                <button
-                                    aria-selected={eventScope === 'client'}
-                                    className={eventScope === 'client' ? 'is-active' : ''}
-                                    onClick={() => chooseEventScope('client')}
-                                    role="tab"
-                                    type="button"
-                                >
-                                    <Monitor size={14} /> 客户端事件
-                                </button>
-                                <button
-                                    aria-selected={eventScope === 'server'}
-                                    className={eventScope === 'server' ? 'is-active' : ''}
-                                    onClick={() => chooseEventScope('server')}
-                                    role="tab"
-                                    type="button"
-                                >
-                                    <Server size={14} /> 服务端事件
-                                </button>
+                            <div className="simulation-scope-block">
+                                <div className="simulation-scope-tabs" role="tablist" aria-label="事件来源">
+                                    <button
+                                        aria-selected={eventScope === 'client'}
+                                        className={eventScope === 'client' ? 'is-active' : ''}
+                                        onClick={() => chooseEventScope('client')}
+                                        role="tab"
+                                        type="button"
+                                    >
+                                        <Monitor size={14} /> 客户端事件
+                                    </button>
+                                    <button
+                                        aria-selected={eventScope === 'server'}
+                                        className={eventScope === 'server' ? 'is-active' : ''}
+                                        onClick={() => chooseEventScope('server')}
+                                        role="tab"
+                                        type="button"
+                                    >
+                                        <Server size={14} /> 服务端事件
+                                    </button>
+                                </div>
+                                <p className="simulation-scope-copy">
+                                    {eventScope === 'client'
+                                        ? '模拟由当前客户端主动触发的连接行为。'
+                                        : '模拟业务代码感知到的服务器侧连接事件。'}
+                                </p>
                             </div>
-                            <p className="simulation-scope-copy">
-                                {eventScope === 'client'
-                                    ? '模拟由当前客户端主动触发的连接行为。'
-                                    : '模拟业务代码感知到的服务器侧连接事件。'}
-                            </p>
                             <label className="simulation-field">
                                 <span>事件类型</span>
                                 <select

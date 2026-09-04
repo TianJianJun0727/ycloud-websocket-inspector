@@ -1689,6 +1689,10 @@ button {
     gap: 14px;
     padding-top: 14px;
 }
+.simulation-form:has(.simulation-scope-block) {
+    gap: 9px;
+    padding-top: 12px;
+}
 .simulation-field input,
 .simulation-field select,
 .simulation-field textarea {
@@ -1698,7 +1702,14 @@ button {
     outline: none;
     color: var(--text);
     background: color-mix(in srgb, var(--surface) 82%, transparent);
-    font: inherit;
+    font-family: inherit;
+    font-size: 11px;
+    line-height: 1.45;
+}
+.simulation-field input::placeholder,
+.simulation-field textarea::placeholder {
+    color: color-mix(in srgb, var(--muted) 78%, transparent);
+    font-size: 11px;
 }
 .simulation-field input,
 .simulation-field select {
@@ -1724,20 +1735,58 @@ button {
     gap: 10px;
 }
 
+.simulation-scope-block {
+    display: grid;
+    gap: 6px;
+    padding: 7px;
+    border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--accent-soft) 28%, transparent);
+}
 .simulation-scope-tabs {
-    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--surface) 76%, transparent);
 }
-
 .simulation-scope-tabs button {
-    flex: 1;
+    display: inline-flex;
+    min-width: 0;
+    min-height: 30px;
+    align-items: center;
     justify-content: center;
+    gap: 5px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 5px;
+    color: var(--muted);
+    background: transparent;
+    font: inherit;
+    font-size: 10px;
+    font-weight: 650;
+    cursor: pointer;
+    transition:
+        color 150ms ease,
+        background-color 150ms ease,
+        box-shadow 150ms ease;
 }
-
+.simulation-scope-tabs button:hover:not(.is-active) {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent-soft) 48%, transparent);
+}
+.simulation-scope-tabs button.is-active {
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent-soft) 82%, var(--surface));
+    box-shadow: 0 2px 7px color-mix(in srgb, var(--accent) 14%, transparent);
+}
 .simulation-scope-copy {
-    margin: -6px 0 0;
+    margin: 0 2px;
     color: var(--muted);
     font-size: 10px;
-    line-height: 1.6;
+    line-height: 1.5;
 }
 .simulation-notice {
     display: flex;
@@ -1774,7 +1823,7 @@ button {
     width: 100%;
     min-height: 38px;
     margin-top: auto;
-    color: var(--surface);
+    color: #fff;
     background: var(--accent);
 }
 :root[data-color-mode='dark'] .simulation-notice {
@@ -1911,7 +1960,7 @@ button {
 
 /* Dark mode uses one seasonal, translucent elevation system. */
 :root[data-color-mode='dark'] {
-    --dark-layer-canvas: color-mix(in srgb, var(--dark-base) 10%, transparent);
+    --dark-layer-canvas: color-mix(in srgb, var(--dark-base) 14%, transparent);
     --dark-layer-soft: color-mix(in srgb, var(--dark-base) 32%, transparent);
     --dark-layer-control: color-mix(in srgb, var(--dark-base) 52%, transparent);
     --dark-layer-panel: color-mix(in srgb, var(--dark-base) 58%, transparent);
@@ -1943,6 +1992,27 @@ button {
     border-color: var(--dark-border-soft);
     color: var(--text);
     background: var(--dark-layer-control);
+}
+
+:root[data-color-mode='dark'] .simulation-scope-block {
+    border-color: var(--dark-border-soft);
+    background: color-mix(in srgb, var(--accent) 6%, var(--dark-layer-soft));
+}
+
+:root[data-color-mode='dark'] .simulation-scope-tabs {
+    border-color: var(--dark-border-soft);
+    background: var(--dark-layer-control);
+}
+
+:root[data-color-mode='dark'] .simulation-scope-tabs button:hover:not(.is-active) {
+    color: var(--text);
+    background: var(--dark-layer-hover);
+}
+
+:root[data-color-mode='dark'] .simulation-scope-tabs button.is-active {
+    color: #fff;
+    background: var(--dark-layer-selected);
+    box-shadow: inset 0 0 0 1px var(--dark-border-strong);
 }
 
 :root[data-color-mode='dark'] .connection-search-field:focus-within,
@@ -2073,4 +2143,250 @@ button {
 
 :root[data-color-mode='dark'] .simulation-submit:not(:disabled):hover {
     background: color-mix(in srgb, var(--accent) 86%, white);
+}
+
+/* Light mode mirrors the dark translucent elevation system without washing out the seasonal artwork. */
+:root:not([data-color-mode='dark']) {
+    --light-layer-canvas: color-mix(in srgb, var(--surface-solid) 18%, transparent);
+    --light-layer-soft: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+    --light-layer-control: color-mix(in srgb, var(--surface-solid) 66%, transparent);
+    --light-layer-panel: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+    --light-layer-elevated: color-mix(in srgb, var(--surface-solid) 86%, transparent);
+    --light-layer-hover: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+    --light-layer-selected: color-mix(in srgb, var(--accent-soft) 84%, transparent);
+    --light-border-soft: color-mix(in srgb, var(--accent) 20%, var(--border));
+    --light-border-strong: color-mix(in srgb, var(--accent) 42%, var(--border));
+    --light-shadow: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+/* Keep the three workspace columns on one continuous seasonal canvas. */
+:root:not([data-color-mode='dark']) .connection-sidebar,
+:root:not([data-color-mode='dark']) .messages-panel,
+:root:not([data-color-mode='dark']) .message-detail-panel,
+:root:not([data-color-mode='dark']) .simulation-panel {
+    background: var(--light-layer-canvas);
+    box-shadow: none;
+}
+
+:root:not([data-color-mode='dark']) .message-detail-panel {
+    color: color-mix(in srgb, var(--text) 96%, #000);
+}
+
+:root:not([data-color-mode='dark']) .message-detail-panel dt,
+:root:not([data-color-mode='dark']) .message-detail-panel .detail-label,
+:root:not([data-color-mode='dark']) .message-detail-panel .detail-meta-label {
+    color: color-mix(in srgb, var(--text) 80%, var(--surface-solid));
+}
+
+[data-color-mode='dark'] .connection-sidebar,
+[data-color-mode='dark'] .messages-panel,
+[data-color-mode='dark'] .message-detail-panel,
+[data-color-mode='dark'] .simulation-panel {
+    background: var(--dark-layer-canvas);
+    box-shadow: none;
+}
+
+/* Both draggable column boundaries share one visual treatment. */
+.workspace [role='separator'] {
+    position: relative;
+    flex: 0 0 1px;
+    width: 1px;
+    min-width: 1px;
+    border: 0;
+    background: color-mix(in srgb, var(--accent) 38%, var(--border));
+    cursor: col-resize;
+    outline: 0;
+    box-shadow: none;
+    transition: background-color 160ms ease;
+}
+
+.workspace [role='separator']::before {
+    content: '';
+    position: absolute;
+    inset: 0 -5px;
+}
+
+.workspace [role='separator']:hover,
+.workspace [role='separator']:active {
+    background: color-mix(in srgb, var(--accent) 68%, var(--border));
+    outline: 0;
+    box-shadow: none;
+}
+
+.workspace [role='separator']::after {
+    display: none;
+}
+
+.workspace > .connection-sidebar {
+    border-right: 0;
+}
+
+.workspace > .messages-panel {
+    border-left: 0;
+    border-right: 0;
+}
+
+.workspace > .message-detail-panel,
+.workspace > .simulation-panel {
+    border-left: 0;
+}
+
+/* Dark interaction states: translucent, low-saturation, and consistent. */
+:root[data-color-mode='dark'] .overview-metric {
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+    border-color: color-mix(in srgb, var(--text) 13%, transparent);
+}
+
+:root[data-color-mode='dark'] .connection-item {
+    background: color-mix(in srgb, var(--text) 3%, transparent);
+    border-color: transparent;
+}
+
+:root[data-color-mode='dark'] .connection-item:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+:root[data-color-mode='dark'] .connection-item.is-selected,
+:root[data-color-mode='dark'] .connection-item[aria-selected='true'] {
+    background: color-mix(in srgb, var(--accent) 19%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 46%, transparent);
+}
+
+:root[data-color-mode='dark'] .frame-table tbody tr {
+    background: color-mix(in srgb, var(--text) 2.5%, transparent);
+}
+
+:root[data-color-mode='dark'] .frame-table tbody tr:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+:root[data-color-mode='dark'] .frame-table tbody tr[aria-selected='true'],
+:root[data-color-mode='dark'] .frame-table tbody tr[aria-selected='true']:hover {
+    background: color-mix(in srgb, var(--accent) 19%, transparent);
+    box-shadow: inset 3px 0 color-mix(in srgb, var(--accent) 78%, transparent);
+}
+
+:root:not([data-color-mode='dark']) .inspector-shell::after {
+    background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--background) 28%, transparent),
+        color-mix(in srgb, var(--accent) 6%, transparent) 52%,
+        color-mix(in srgb, var(--background) 20%, transparent)
+    );
+}
+
+:root:not([data-color-mode='dark']) .workspace-frame {
+    border-color: var(--light-border-soft);
+    background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--surface-solid) 30%, transparent),
+        color-mix(in srgb, var(--surface-solid) 36%, transparent)
+    );
+    box-shadow: 0 12px 34px var(--light-shadow);
+    backdrop-filter: brightness(1.03) saturate(0.94);
+}
+
+:root:not([data-color-mode='dark']) .connection-sidebar {
+    background: color-mix(in srgb, var(--surface-solid) 14%, transparent);
+}
+
+:root[data-color-mode='dark'] .connection-sidebar {
+    background: color-mix(in srgb, var(--dark-base) 10%, transparent);
+}
+
+:root:not([data-color-mode='dark']) .side-card {
+    border-color: var(--light-border-soft);
+    background: var(--light-layer-soft);
+    box-shadow: 0 8px 22px var(--light-shadow);
+    backdrop-filter: blur(8px) saturate(1.04);
+}
+
+:root:not([data-color-mode='dark']) .overview-metric,
+:root:not([data-color-mode='dark']) .table-empty > span {
+    background: color-mix(in srgb, var(--accent-soft) 66%, transparent);
+}
+
+:root:not([data-color-mode='dark']) .connection-search-field,
+:root:not([data-color-mode='dark']) .search-field,
+:root:not([data-color-mode='dark']) .heartbeat-input,
+:root:not([data-color-mode='dark']) .simulation-field input,
+:root:not([data-color-mode='dark']) .simulation-field select,
+:root:not([data-color-mode='dark']) .simulation-field textarea {
+    border-color: var(--light-border-soft);
+    background: var(--light-layer-control);
+    backdrop-filter: blur(7px);
+}
+
+:root:not([data-color-mode='dark']) .connection-search-field:focus-within,
+:root:not([data-color-mode='dark']) .search-field:focus-within,
+:root:not([data-color-mode='dark']) .simulation-field input:focus,
+:root:not([data-color-mode='dark']) .simulation-field select:focus,
+:root:not([data-color-mode='dark']) .simulation-field textarea:focus {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent-soft) 38%, var(--light-layer-control));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+:root:not([data-color-mode='dark']) .connection-item:hover {
+    background: var(--light-layer-hover);
+}
+
+:root:not([data-color-mode='dark']) .connection-item.is-selected,
+:root:not([data-color-mode='dark']) .connection-item[aria-selected='true'] {
+    border-color: var(--light-border-soft);
+    background: linear-gradient(
+        105deg,
+        var(--light-layer-selected),
+        color-mix(in srgb, var(--surface-solid) 22%, transparent)
+    );
+    box-shadow:
+        inset 3px 0 0 var(--accent),
+        0 7px 18px color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+:root:not([data-color-mode='dark']) .messages-panel {
+    background: var(--light-layer-canvas);
+}
+
+:root:not([data-color-mode='dark']) .frame-table thead {
+    background: var(--light-layer-control);
+    backdrop-filter: blur(8px);
+}
+
+:root:not([data-color-mode='dark']) .frame-table tbody tr:hover {
+    background: var(--light-layer-hover);
+}
+
+:root:not([data-color-mode='dark']) .frame-table tbody tr[aria-selected='true'],
+:root:not([data-color-mode='dark']) .frame-table tbody tr[aria-selected='true']:hover {
+    background: var(--light-layer-selected);
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+:root:not([data-color-mode='dark']) .settings-popover,
+:root:not([data-color-mode='dark']) .connection-sort-popover,
+:root:not([data-color-mode='dark']) .connection-filter-popover {
+    border-color: var(--light-border-strong);
+    background: var(--light-layer-elevated);
+    box-shadow: 0 18px 48px color-mix(in srgb, var(--text) 14%, transparent);
+    backdrop-filter: blur(20px) saturate(1.05);
+}
+
+:root:not([data-color-mode='dark']) .simulation-panel,
+:root:not([data-color-mode='dark']) .message-detail {
+    border-color: var(--light-border-soft);
+    background: var(--light-layer-panel);
+    box-shadow: -14px 0 34px var(--light-shadow);
+    backdrop-filter: blur(14px) saturate(1.04);
+}
+
+:root:not([data-color-mode='dark']) .simulation-scope-block {
+    border-color: var(--light-border-soft);
+    background: color-mix(in srgb, var(--accent-soft) 38%, transparent);
+}
+
+:root:not([data-color-mode='dark']) .simulation-scope-tabs {
+    border-color: var(--light-border-soft);
+    background: var(--light-layer-control);
 }
