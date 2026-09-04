@@ -1,0 +1,11 @@
+{
+    "extensionName": {
+        "message": "YCloud WebSocket Debugger"
+    },
+    "extensionDescription": {
+        "message": "Capture, search, inspect, and debug WebSocket connections and messages in real time."
+    },
+    "actionTitle": {
+        "message": "Open YCloud WebSocket Debugger"
+    }
+}
