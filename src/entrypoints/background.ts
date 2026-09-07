@@ -138,9 +138,9 @@ export default defineBackground(() => {
     // 以下集合只保存当前监听会话的运行态；业务页面及业务存储不会被修改。
     const uiPorts = new Set<chrome.runtime.Port>();
     const attachedTargets = new Map<string, CaptureTarget>();
+    const initializingTargetIds = new Set<string>();
     const socketMaps = new Map<string, Map<string, SocketRecord>>();
     const blockedTargetIds = new Set<string>();
-    const occupiedTargetIds = new Set<string>();
     const targetRetryStates = new Map<string, { failureCount: number; retryAt: number }>();
     const pausedConnections = new Set<string>();
     const frameBuckets = new Map<string, FrameRecord[]>();
@@ -452,7 +452,6 @@ export default defineBackground(() => {
         targetExecutionContexts.clear();
         workerSocketAliases.clear();
         blockedTargetIds.clear();
-        occupiedTargetIds.clear();
         pausedConnections.clear();
         pendingSimulationSends.clear();
         pauseNewConnections = false;
@@ -1145,7 +1144,8 @@ export default defineBackground(() => {
         if (discoveredSockets) synchronizeDiscoveredSockets(targetId, discoveredSockets);
         removeDiagnostics(
             (diagnostic) =>
-                diagnostic.level === 'error' && diagnostic.source === 'capture' && diagnostic.targetId === targetId,
+                diagnostic.source === 'capture' && diagnostic.targetId === targetId &&
+                (diagnostic.level === 'error' || diagnostic.message === '目标暂时无法附加：其他调试器占用，将自动重试'),
         );
         pushDiagnostic('info', `已连接${targetTypeFallbackTitle(targetType)}调试目标`, targetId);
         broadcast();
@@ -1182,7 +1182,7 @@ export default defineBackground(() => {
         const rootTargetId = resolveEventTargetId(rootSession);
         const { targetId, title, type, url } = event.targetInfo;
         if (!rootTargetId) return;
-        if (attachedTargets.has(targetId)) {
+        if (attachedTargets.has(targetId) || initializingTargetIds.has(targetId)) {
             await sendDebuggerCommand(debuggerTarget(rootTargetId), 'Target.detachFromTarget', {
                 sessionId: event.sessionId,
             }).catch(() => undefined);
@@ -1206,6 +1206,7 @@ export default defineBackground(() => {
         debuggerSessions.set(targetId, childSession);
         sessionTargetIds.set(event.sessionId, targetId);
         childTargetParents.set(targetId, rootTargetId);
+        initializingTargetIds.add(targetId);
         try {
             const targetType = await initializeAttachedTarget(
                 targetId,
@@ -1229,6 +1230,8 @@ export default defineBackground(() => {
             removeTarget(targetId);
             pushDiagnostic('error', error instanceof Error ? error.message : '连接 Web Worker 调试目标失败', targetId);
             broadcast();
+        } finally {
+            initializingTargetIds.delete(targetId);
         }
     };
 
@@ -1239,21 +1242,17 @@ export default defineBackground(() => {
     ): Promise<void> => {
         if (
             attachedTargets.has(target.id) ||
+            initializingTargetIds.has(target.id) ||
             blockedTargetIds.has(target.id) ||
-            occupiedTargetIds.has(target.id) ||
             target.url?.startsWith(chrome.runtime.getURL(''))
         ) {
-            return;
-        }
-        if (target.attached) {
-            occupiedTargetIds.add(target.id);
-            pushDiagnostic('warning', '目标已被其他 DevTools 或调试器占用', target.id);
             return;
         }
         const debuggee: chrome.debugger.DebuggerSession =
             target.type === 'page' && typeof target.tabId === 'number'
                 ? { tabId: target.tabId }
                 : { targetId: target.id };
+        initializingTargetIds.add(target.id);
         try {
             await chrome.debugger.attach(debuggee, '1.3');
             debuggerSessions.set(target.id, debuggee);
@@ -1289,10 +1288,18 @@ export default defineBackground(() => {
             const retryDelay =
                 TARGET_RETRY_DELAYS_MS[Math.min(failureCount - 1, TARGET_RETRY_DELAYS_MS.length - 1)] ?? 30000;
             targetRetryStates.set(target.id, { failureCount, retryAt: Date.now() + retryDelay });
-            await safeDetach(target.id);
+            if (debuggerSessions.has(target.id)) await safeDetach(target.id);
             removeTarget(target.id);
-            pushDiagnostic('error', error?.message || '连接 WebSocket 调试目标失败', target.id);
+            const message = error?.message || '连接 WebSocket 调试目标失败';
+            const occupied = /another debugger is already attached/i.test(message);
+            pushDiagnostic(
+                occupied ? 'warning' : 'error',
+                occupied ? '目标暂时无法附加：其他调试器占用，将自动重试' : message,
+                target.id,
+            );
             broadcast();
+        } finally {
+            initializingTargetIds.delete(target.id);
         }
     };
     const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, timeoutMessage = '扫描 WebSocket 目标超时'): Promise<T> => {
@@ -1307,8 +1314,8 @@ export default defineBackground(() => {
     const shouldQueueTarget = (target: chrome.debugger.TargetInfo): boolean => {
         if (
             attachedTargets.has(target.id) ||
+            initializingTargetIds.has(target.id) ||
             blockedTargetIds.has(target.id) ||
-            occupiedTargetIds.has(target.id) ||
             target.url?.startsWith(chrome.runtime.getURL(''))
         ) {
             return false;
@@ -1364,10 +1371,6 @@ export default defineBackground(() => {
             for (const targetId of blockedTargetIds) {
                 if (!liveIds.has(targetId)) blockedTargetIds.delete(targetId);
             }
-            for (const targetId of occupiedTargetIds) {
-                const target = liveTargets.get(targetId);
-                if (!target || !target.attached) occupiedTargetIds.delete(targetId);
-            }
             for (const targetId of targetRetryStates.keys()) {
                 if (!liveIds.has(targetId)) targetRetryStates.delete(targetId);
             }
@@ -1398,7 +1401,6 @@ export default defineBackground(() => {
                 .filter(
                 (item) =>
                     ['worker', 'shared_worker'].includes(item.type) &&
-                    !item.attached &&
                     shouldQueueTarget(item),
                 )
                 .sort((left, right) => targetPriority(left) - targetPriority(right));
@@ -1430,7 +1432,6 @@ export default defineBackground(() => {
         scanning = true;
         broadcast();
         blockedTargetIds.clear();
-        occupiedTargetIds.clear();
         targetRetryStates.clear();
         try {
             await refreshAttachedTargets();
@@ -1483,7 +1484,7 @@ export default defineBackground(() => {
         if (method === 'Target.detachedFromTarget') {
             const event = (params ?? {}) as DetachedTargetEvent;
             const childTargetId = event.targetId || sessionTargetIds.get(event.sessionId);
-            if (childTargetId) {
+            if (childTargetId && debuggerSessions.get(childTargetId)?.sessionId === event.sessionId) {
                 removeTarget(childTargetId);
                 broadcast();
             }
