@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect x="4" y="4" width="120" height="120" rx="28" fill="#f8f5ff" stroke="#d9ccff" stroke-width="2" />
-  <g transform="translate(4.83 2.26) scale(7.35)">
+  <g transform="translate(0.405 -2.36) scale(7.9)">
     <defs>
       <linearGradient id="brand-1" gradientUnits="userSpaceOnUse" x1="-2.221" y1="5.2687" x2="16.0184" y2="11.1489">
         <stop offset="0" stop-color="#FA23B9" />
