@@ -1,4 +1,5 @@
 import tailwindcss from '@tailwindcss/vite';
+import packageJson from './package.json';
 import { defineConfig } from 'wxt';
 
 export default defineConfig({
@@ -6,7 +7,7 @@ export default defineConfig({
     modules: ['@wxt-dev/module-react'],
     manifest: {
         name: '__MSG_extensionName__',
-        version: '0.0.1',
+        version: packageJson.version,
         description: '__MSG_extensionDescription__',
         default_locale: 'en',
         minimum_chrome_version: '125',
