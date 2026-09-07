@@ -408,9 +408,8 @@ export const App = () => {
     }, [themePreference]);
 
     useEffect(() => {
-        if (!connections.length) setSelectedConnection(null);
-        else if (!connections.some(({ key }) => key === selectedConnection))
-            setSelectedConnection(connections.find(({ status }) => status === 'open')?.key || connections[0]!.key);
+        if (selectedConnection !== null && !connections.some(({ key }) => key === selectedConnection))
+            setSelectedConnection(null);
     }, [connections, selectedConnection]);
 
     /** 更新当前连接独立保存的搜索或方向筛选条件。 */
