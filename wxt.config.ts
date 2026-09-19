@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
-import packageJson from './package.json';
 import { defineConfig } from 'wxt';
+
+import packageJson from './package.json';
 
 export default defineConfig({
     srcDir: 'src',

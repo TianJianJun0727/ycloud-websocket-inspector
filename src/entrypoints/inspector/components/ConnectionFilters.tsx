@@ -156,7 +156,9 @@ export const ConnectionFilters = ({
                                     <button
                                         className={selected ? 'is-selected' : ''}
                                         key={domain}
-                                        onClick={() => onChange({ ...filters, domains: toggleValue(filters.domains, domain) })}
+                                        onClick={() =>
+                                            onChange({ ...filters, domains: toggleValue(filters.domains, domain) })
+                                        }
                                         title={domain}
                                         type="button"
                                     >

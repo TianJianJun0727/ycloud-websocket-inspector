@@ -722,8 +722,7 @@ export default defineBackground(() => {
                     if (!instancesObjectId) return [];
                     const valuesResult = await sendDebuggerCommand(debuggee, 'Runtime.callFunctionOn', {
                         objectId: instancesObjectId,
-                        functionDeclaration:
-                            `function () {
+                        functionDeclaration: `function () {
                                 const bindingName = '__ycloudWebSocketInspectorFrame';
                                 const state = globalThis.__ycloudWebSocketInspectorState || {
                                     ids: new WeakMap(),
@@ -828,7 +827,7 @@ export default defineBackground(() => {
         if (new TextEncoder().encode(payload).byteLength > 1024 * 1024) {
             return { success: false, message: '模拟消息不能超过 1 MB' };
         }
-        if (action === 'client-close' && (closeCode !== 1000 && (closeCode < 3000 || closeCode > 4999))) {
+        if (action === 'client-close' && closeCode !== 1000 && (closeCode < 3000 || closeCode > 4999)) {
             return { success: false, message: '客户端主动关闭仅支持代码 1000 或 3000-4999' };
         }
         if (action.endsWith('-close') && new TextEncoder().encode(closeReason).byteLength > 123) {
@@ -889,9 +888,7 @@ export default defineBackground(() => {
                 returnByValue: true,
                 timeout: 3000,
                 disableBreaks: true,
-                ...(typeof socket.executionContextId === 'number'
-                    ? { contextId: socket.executionContextId }
-                    : {}),
+                ...(typeof socket.executionContextId === 'number' ? { contextId: socket.executionContextId } : {}),
             });
             const result = executionResult?.result?.value as RuntimeSimulationResult | undefined;
             return (
@@ -1129,7 +1126,7 @@ export default defineBackground(() => {
                 targetType === 'page'
                     ? debuggee.tabId
                     : targetType === 'worker'
-                      ? ownerTabId ?? debuggee.tabId
+                      ? (ownerTabId ?? debuggee.tabId)
                       : undefined,
             type: targetType,
             title: title || targetTypeFallbackTitle(targetType),
@@ -1144,7 +1141,8 @@ export default defineBackground(() => {
         if (discoveredSockets) synchronizeDiscoveredSockets(targetId, discoveredSockets);
         removeDiagnostics(
             (diagnostic) =>
-                diagnostic.source === 'capture' && diagnostic.targetId === targetId &&
+                diagnostic.source === 'capture' &&
+                diagnostic.targetId === targetId &&
                 (diagnostic.level === 'error' || diagnostic.message === '目标暂时无法附加：其他调试器占用，将自动重试'),
         );
         pushDiagnostic('info', `已连接${targetTypeFallbackTitle(targetType)}调试目标`, targetId);
@@ -1302,12 +1300,14 @@ export default defineBackground(() => {
             initializingTargetIds.delete(target.id);
         }
     };
-    const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, timeoutMessage = '扫描 WebSocket 目标超时'): Promise<T> => {
+    const withTimeout = <T>(
+        promise: Promise<T>,
+        timeoutMs: number,
+        timeoutMessage = '扫描 WebSocket 目标超时',
+    ): Promise<T> => {
         return Promise.race([
             promise,
-            new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs),
-            ),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)),
         ]);
     };
     /** 仅将新增或退避到期的目标加入扫描队列，稳定目标不再产生等待开销。 */
@@ -1326,9 +1326,7 @@ export default defineBackground(() => {
     /** 使用固定并发处理待附加目标，避免标签页较多时瞬间创建大量 CDP 会话。 */
     const inspectCandidateQueue = async (
         candidates: chrome.debugger.TargetInfo[],
-        resolveOwner?: (
-            target: chrome.debugger.TargetInfo,
-        ) => Promise<{ ownerPageUrl?: string; ownerTabId?: number }>,
+        resolveOwner?: (target: chrome.debugger.TargetInfo) => Promise<{ ownerPageUrl?: string; ownerTabId?: number }>,
     ): Promise<boolean> => {
         let nextIndex = 0;
         let partialScanFailed = false;
@@ -1344,8 +1342,7 @@ export default defineBackground(() => {
                     const previousRetry = targetRetryStates.get(target.id);
                     const failureCount = (previousRetry?.failureCount || 0) + 1;
                     const retryDelay =
-                        TARGET_RETRY_DELAYS_MS[Math.min(failureCount - 1, TARGET_RETRY_DELAYS_MS.length - 1)] ??
-                        30000;
+                        TARGET_RETRY_DELAYS_MS[Math.min(failureCount - 1, TARGET_RETRY_DELAYS_MS.length - 1)] ?? 30000;
                     targetRetryStates.set(target.id, { failureCount, retryAt: Date.now() + retryDelay });
                     partialScanFailed = true;
                 }
@@ -1398,11 +1395,7 @@ export default defineBackground(() => {
             const pageSession = [...attachedTargets.entries()].find(([, target]) => target.type === 'page');
             const pageDebuggee = pageSession ? debuggerTarget(pageSession[0]) : null;
             const fallbackWorkers = refreshedTargets
-                .filter(
-                (item) =>
-                    ['worker', 'shared_worker'].includes(item.type) &&
-                    shouldQueueTarget(item),
-                )
+                .filter((item) => ['worker', 'shared_worker'].includes(item.type) && shouldQueueTarget(item))
                 .sort((left, right) => targetPriority(left) - targetPriority(right));
             const fallbackFailed = await inspectCandidateQueue(fallbackWorkers, async (target) => {
                 if (!pageDebuggee) return {};
@@ -1529,8 +1522,7 @@ export default defineBackground(() => {
                 return;
             }
             const requestId =
-                workerSocketAliases.get(targetId)?.get(runtimeFrame.runtimeId) ||
-                `runtime:${runtimeFrame.runtimeId}`;
+                workerSocketAliases.get(targetId)?.get(runtimeFrame.runtimeId) || `runtime:${runtimeFrame.runtimeId}`;
             const sockets = socketMaps.get(targetId);
             if (!sockets) return;
             if (!sockets.has(requestId)) {
@@ -1811,10 +1803,7 @@ export default defineBackground(() => {
                             const targetUrl = attachedTargets.get(command.targetId)?.url || '';
                             appendSimulationFrame(command, targetUrl);
                             if (command.action === 'send') {
-                                setTimeout(
-                                    () => removeSimulationSend(connectionKey, command.operationId),
-                                    10000,
-                                );
+                                setTimeout(() => removeSimulationSend(connectionKey, command.operationId), 10000);
                             }
                         }
                     });

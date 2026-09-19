@@ -81,9 +81,7 @@ const groupConnectionRows = (
             if (typeof rightTabId !== 'number') return -1;
             return (leftTabId - rightTabId) * groupDirection;
         }
-        return (
-            leftLabel.localeCompare(rightLabel, 'zh-CN', { numeric: true, sensitivity: 'base' }) * groupDirection
-        );
+        return leftLabel.localeCompare(rightLabel, 'zh-CN', { numeric: true, sensitivity: 'base' }) * groupDirection;
     });
     return orderedGroups.flatMap(([groupLabel, values]) =>
         values.map((connection, index) => ({
@@ -171,68 +169,74 @@ export const ConnectionSidebar = ({
                 <div className="connection-list" role="listbox" aria-label="WebSocket 连接">
                     {groupConnectionRows(filteredConnections, group, sort).map(
                         ({ connection, groupLabel, showGroupHeader }) => {
-                        return (
-                            <Fragment key={connection.key}>
-                                {groupLabel && showGroupHeader && (
-                                    <div className="connection-group-header">
-                                        <span>{groupLabel}</span>
-                                    </div>
-                                )}
-                        <button
-                            aria-selected={selectedConnection === connection.key}
-                            className={`connection-item${selectedConnection === connection.key ? ' is-selected' : ''}`}
-                            onClick={() => onSelect(connection.key)}
-                            role="option"
-                            type="button"
-                        >
-                            <span className={`connection-dot status-${connection.status}`} />
-                            <span className="connection-copy">
-                                <strong title={connection.url || connection.targetUrl}>
-                                    {displayConnection(connection)}
-                                </strong>
-                                <small className="connection-owner-line" title={connection.targetUrl}>
-                                    <span className="connection-domain">
-                                        {connection.targetType === 'page' || connection.targetType === 'worker'
-                                            ? displayDomain(connection.targetUrl)
-                                            : displayUrl(connection.targetUrl, '未知运行环境')}
-                                    </span>
-                                    <span className="connection-owner-badges">
-                                        <span className={`connection-target-badge target-${connection.targetType}`}>
-                                            {targetTypeLabel(connection.targetType)}
-                                        </span>
-                                        {(connection.targetType === 'page' || connection.targetType === 'worker') &&
-                                            typeof connection.tabId === 'number' && (
-                                                <span
-                                                    className={`connection-target-badge target-${connection.targetType} connection-tab-id`}
-                                                >
-                                                    {connection.tabId}
+                            return (
+                                <Fragment key={connection.key}>
+                                    {groupLabel && showGroupHeader && (
+                                        <div className="connection-group-header">
+                                            <span>{groupLabel}</span>
+                                        </div>
+                                    )}
+                                    <button
+                                        aria-selected={selectedConnection === connection.key}
+                                        className={`connection-item${selectedConnection === connection.key ? ' is-selected' : ''}`}
+                                        onClick={() => onSelect(connection.key)}
+                                        role="option"
+                                        type="button"
+                                    >
+                                        <span className={`connection-dot status-${connection.status}`} />
+                                        <span className="connection-copy">
+                                            <strong title={connection.url || connection.targetUrl}>
+                                                {displayConnection(connection)}
+                                            </strong>
+                                            <small className="connection-owner-line" title={connection.targetUrl}>
+                                                <span className="connection-domain">
+                                                    {connection.targetType === 'page' ||
+                                                    connection.targetType === 'worker'
+                                                        ? displayDomain(connection.targetUrl)
+                                                        : displayUrl(connection.targetUrl, '未知运行环境')}
                                                 </span>
-                                            )}
-                                    </span>
-                                </small>
-                                <small className="connection-status-line">
-                                    {connection.frameCount} 条 · {connectionStateLabel(connection)}
-                                </small>
-                                <small className="connection-time">{formatConnectionRange(connection)}</small>
-                            </span>
-                            {connection.status !== 'closed' && (
-                                <span
-                                    className={`mini-switch${!connection.capturePaused ? ' is-on' : ''}`}
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        onToggleConnection(connection);
-                                    }}
-                                    role="switch"
-                                    aria-checked={!connection.capturePaused}
-                                    aria-label={connection.capturePaused ? '继续记录' : '暂停记录'}
-                                    tabIndex={0}
-                                >
-                                    <span />
-                                </span>
-                            )}
-                        </button>
-                            </Fragment>
-                        );
+                                                <span className="connection-owner-badges">
+                                                    <span
+                                                        className={`connection-target-badge target-${connection.targetType}`}
+                                                    >
+                                                        {targetTypeLabel(connection.targetType)}
+                                                    </span>
+                                                    {(connection.targetType === 'page' ||
+                                                        connection.targetType === 'worker') &&
+                                                        typeof connection.tabId === 'number' && (
+                                                            <span
+                                                                className={`connection-target-badge target-${connection.targetType} connection-tab-id`}
+                                                            >
+                                                                {connection.tabId}
+                                                            </span>
+                                                        )}
+                                                </span>
+                                            </small>
+                                            <small className="connection-status-line">
+                                                {connection.frameCount} 条 · {connectionStateLabel(connection)}
+                                            </small>
+                                            <small className="connection-time">
+                                                {formatConnectionRange(connection)}
+                                            </small>
+                                        </span>
+                                        {connection.status !== 'closed' && (
+                                            <span
+                                                className={`mini-switch${!connection.capturePaused ? ' is-on' : ''}`}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    onToggleConnection(connection);
+                                                }}
+                                                role="switch"
+                                                aria-checked={!connection.capturePaused}
+                                                aria-label={connection.capturePaused ? '继续记录' : '暂停记录'}
+                                                tabIndex={0}
+                                            >
+                                                <span />
+                                            </span>
+                                        )}
+                                    </button>
+                                </Fragment>
+                            );
                         },
                     )}
                     {!connections.length && <p className="empty-copy">正在发现 WebSocket 连接…</p>}

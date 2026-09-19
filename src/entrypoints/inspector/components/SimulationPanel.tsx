@@ -94,8 +94,7 @@ export const SimulationPanel = ({ connection, pending, result, onClose, onExecut
             return;
         }
         clearFeedback();
-        const action: SimulationAction =
-            tab === 'system' ? (`${eventScope}-${eventKind}` as SystemAction) : tab;
+        const action: SimulationAction = tab === 'system' ? (`${eventScope}-${eventKind}` as SystemAction) : tab;
         onExecute({
             action,
             payload: tab === 'system' && eventKind === 'error' ? errorMessage.trim() : payload,
@@ -270,7 +269,10 @@ export const SimulationPanel = ({ connection, pending, result, onClose, onExecut
                                 <>
                                     <label className="simulation-field">
                                         <span>错误场景</span>
-                                        <select value={errorPreset} onChange={(event) => chooseErrorPreset(event.target.value)}>
+                                        <select
+                                            value={errorPreset}
+                                            onChange={(event) => chooseErrorPreset(event.target.value)}
+                                        >
                                             {ERROR_PRESETS[eventScope].map((preset) => (
                                                 <option key={preset.value} value={preset.value}>
                                                     {preset.label}

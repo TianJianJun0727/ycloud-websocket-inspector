@@ -24,16 +24,12 @@ import type {
     SimulationResult,
 } from '../../types/capture';
 import { ConnectionSidebar } from './components/ConnectionSidebar';
-import {
-    collectConnectionDomains,
-    filterConnections,
-    parseConnectionListFilters,
-} from './connection-list-filter';
-import { parseConnectionGroup, parseConnectionListSort, sortConnections } from './connection-list-sort';
 import { FrameDetail } from './components/FrameDetail';
 import { FrameToolbar } from './components/FrameToolbar';
 import { InspectorHeader } from './components/InspectorHeader';
 import { SimulationPanel } from './components/SimulationPanel';
+import { collectConnectionDomains, filterConnections, parseConnectionListFilters } from './connection-list-filter';
+import { parseConnectionGroup, parseConnectionListSort, sortConnections } from './connection-list-sort';
 import { createDemoPort } from './demo-port';
 import { buildConnections } from './inspector-helpers';
 import { resolveDarkMode, resolveThemeSeason, type ColorMode, type ThemePreference } from './theme';
@@ -96,9 +92,7 @@ const readDisplaySettings = (): StoredDisplaySettings => {
         return {
             hideHeartbeat: typeof record.hideHeartbeat === 'boolean' ? record.hideHeartbeat : defaults.hideHeartbeat,
             heartbeatMessages:
-                typeof record.heartbeatMessages === 'string'
-                    ? record.heartbeatMessages
-                    : defaults.heartbeatMessages,
+                typeof record.heartbeatMessages === 'string' ? record.heartbeatMessages : defaults.heartbeatMessages,
             showMetadata: typeof record.showMetadata === 'boolean' ? record.showMetadata : defaults.showMetadata,
         };
     } catch {
