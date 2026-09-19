@@ -671,9 +671,10 @@ export default defineBackground(() => {
         }
         const sockets = socketMaps.get(targetId);
         const closedAt = Date.now();
-        for (const [requestId] of sockets?.entries() || []) {
+        for (const [requestId, socket] of sockets?.entries() || []) {
             const key = targetId + '::' + requestId;
-            if (!frameBuckets.has(key)) {
+            // 仅清理运行时发现的占位连接；真实连接即使尚未捕获帧也要落库为已关闭。
+            if (socket.urlSource === 'runtime' && !frameBuckets.has(key)) {
                 removeRuntimeSocketPlaceholder(targetId, requestId);
                 continue;
             }
